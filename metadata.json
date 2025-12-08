@@ -1,0 +1,5 @@
+{
+  "name": "EG4 Solar E-Ink Hub",
+  "description": "A high-contrast, e-paper styled dashboard for monitoring EG4 inverters, featuring Gemini-powered system analysis and a script generator to deploy monitoring code to reTerminal devices.",
+  "requestFramePermissions": []
+}
