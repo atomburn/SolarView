@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 
 # --- Script Version ---
-print("Script Version: 5.0 (Using discovered API endpoint)")
+print("Script Version: 5.1 (Correct field names)")
 
 # --- 0. Configuration ---
 EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
@@ -81,27 +81,24 @@ for method in ["POST", "GET"]:
                     print(json.dumps(plant, indent=2))
                     print("  --- End plant data ---")
 
-                    # Try to extract values - check all possible field names
-                    # Solar/PV power
-                    solar = (plant.get('solarPower') or plant.get('pac') or
-                            plant.get('pvPower') or plant.get('ppv') or
-                            plant.get('power') or plant.get('currentPower') or 0)
+                    # Extract values using EG4's actual field names:
+                    # - ppv: PV/Solar power in watts
+                    # - pConsumption: Load/consumption power in watts
+                    # - soc: Battery state of charge (string like "73 %")
 
-                    # Load power
-                    load = (plant.get('load') or plant.get('loadPower') or
-                           plant.get('pload') or plant.get('consumption') or 0)
+                    # Solar power (ppv)
+                    int_solar = int(plant.get('ppv', 0) or 0)
 
-                    # Battery SOC
-                    soc = (plant.get('soc') or plant.get('batterySoc') or
-                          plant.get('capacity') or plant.get('batteryCapacity') or 0)
+                    # Load power (pConsumption)
+                    int_load = int(plant.get('pConsumption', 0) or 0)
 
-                    # Handle string values
+                    # Battery SOC - it's a string like "73 %" so we need to parse it
+                    soc_str = plant.get('soc', '0')
                     try:
-                        int_solar = int(float(solar)) if solar else 0
-                        int_load = int(float(load)) if load else 0
-                        int_soc = int(float(soc)) if soc else 0
-                    except (ValueError, TypeError):
-                        pass
+                        # Remove "%" and any whitespace, then convert to int
+                        int_soc = int(soc_str.replace('%', '').strip())
+                    except (ValueError, AttributeError):
+                        int_soc = 0
 
                     print(f"\n  Extracted: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
 
