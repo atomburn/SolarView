@@ -66,47 +66,59 @@ except requests.exceptions.RequestException as e:
     print(f"ERROR: EG4 Login request failed: {e}")
     sys.exit(1)
 
-# --- 2. SANITY CHECK - Try multiple header formats ---
-print("\n--- Testing SenseCraft API with multiple header formats ---")
-sanity_check_payload = {
-    "device_id": SENSECRAFT_DEVICE_ID,
-    "data": {
-        "battery_soc": 50
-    }
-}
-
+# --- 2. SANITY CHECK - Try different payload formats ---
+print("\n--- Testing SenseCraft API with different formats ---")
 print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
 print(f"API Key (first 8 chars): {SENSECRAFT_KEY[:8]}...")
-print(f"Payload: {sanity_check_payload}")
 
-# Try different header formats
-header_variations = [
-    ("api-key", {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}),
-    ("X-API-KEY", {"X-API-KEY": SENSECRAFT_KEY, "Content-Type": "application/json"}),
-    ("Authorization Bearer", {"Authorization": f"Bearer {SENSECRAFT_KEY}", "Content-Type": "application/json"}),
-    ("Authorization", {"Authorization": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+# Use Authorization Bearer header (confirmed to get HTTP 200)
+working_headers = {
+    "Authorization": f"Bearer {SENSECRAFT_KEY}",
+    "Content-Type": "application/json"
+}
+
+# Try different payload formats to find what SenseCraft accepts
+payload_variations = [
+    ("device_id as int", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": 50}}),
+    ("device_id as string", {"device_id": str(SENSECRAFT_DEVICE_ID), "data": {"battery_soc": 50}}),
+    ("battery_soc as float", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": 50.0}}),
+    ("battery_soc as string", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": "50"}}),
+    ("value field instead", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": {"value": 50}}}),
+    ("flat structure", {"device_id": SENSECRAFT_DEVICE_ID, "battery_soc": 50}),
 ]
 
-working_headers = None
-for header_name, headers in header_variations:
-    print(f"\nTrying '{header_name}' header...")
+success = False
+for desc, payload in payload_variations:
+    print(f"\nTrying: {desc}")
+    print(f"  Payload: {payload}")
     try:
-        response = requests.post(SENSECRAFT_API_URL, json=sanity_check_payload, headers=headers, timeout=10)
-        print(f"  Status: {response.status_code}")
-        print(f"  Response: {response.text[:200] if response.text else '(empty)'}")
+        response = requests.post(SENSECRAFT_API_URL, json=payload, headers=working_headers, timeout=10)
+        print(f"  HTTP Status: {response.status_code}")
+        print(f"  Response: {response.text[:300] if response.text else '(empty)'}")
 
+        # Check both HTTP status and response body
         if response.status_code == 200:
-            print(f"  SUCCESS with '{header_name}'!")
-            working_headers = headers
-            break
+            try:
+                resp_json = response.json()
+                resp_code = resp_json.get('code', 0)
+                if resp_code == 0 or resp_code == 200:
+                    print(f"  SUCCESS! Format '{desc}' works!")
+                    success = True
+                    break
+                else:
+                    print(f"  API returned error code: {resp_code}")
+            except:
+                # No JSON body or parsing error - might still be success
+                print("  SUCCESS (no error code in response)")
+                success = True
+                break
     except Exception as e:
         print(f"  Error: {e}")
 
-if not working_headers:
-    print("\nERROR: All header formats failed. Check API key and device ID.")
-    sys.exit(1)
+if not success:
+    print("\nWARNING: All payload formats returned errors. Continuing anyway to see full output...")
 
-print("\nSanity Check Passed!")
+print("\nSanity Check complete.")
 
 # --- 3. DATA ACQUISITION (Table Scraping) ---
 print("\nAcquiring data from EG4 overview page...")
