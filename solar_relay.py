@@ -33,8 +33,8 @@ if missing_vars:
     print("Please set them before running the script.")
     sys.exit(1)
 
-# The device_id for Sensecraft push is explicitly defined in the prompt.
-SENSECRAFT_DEVICE_ID = "20221942"
+# The device_id for Sensecraft push (reTerminal E1001 serial number)
+SENSECRAFT_DEVICE_ID = "100073581253500339"
 
 # --- 1. Login to EG4 Electronics Monitoring Portal ---
 print("Attempting to log in to EG4 portal...")

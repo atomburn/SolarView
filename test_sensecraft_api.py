@@ -17,7 +17,7 @@ import sys
 
 # --- Configuration ---
 SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
-SENSECRAFT_DEVICE_ID = "20221942"  # Your device ID from the existing script
+SENSECRAFT_DEVICE_ID = "100073581253500339"  # reTerminal E1001 serial number
 
 # Get API key from environment
 SENSECRAFT_KEY = os.environ.get('SENSECRAFT_KEY')
