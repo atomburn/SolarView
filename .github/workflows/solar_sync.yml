@@ -6,6 +6,9 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch: # Allows manual triggering from GitHub UI
 
+permissions:
+  contents: write  # Allow pushing commits
+
 jobs:
   update_solar_data:
     runs-on: ubuntu-latest
