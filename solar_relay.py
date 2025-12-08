@@ -13,10 +13,10 @@ EG4_PLANT_LIST_URL = "https://monitor.eg4electronics.com/WManage/web/plant/plant
 
 # EG4 Data Fetch Endpoints (in order of preference)
 EG4_DATA_ENDPOINTS = [
-    {"name": "Power Flow", "url": "https://monitor.eg4electronics.com/WManage/web/plant/currPowerFlow"},
+    {"name": "Power Flow", "url": "https://monitor.eg4electronics.com/WManage/web/monitor/inverter"},
     {"name": "Inverter List", "url": "https://monitor.eg4electronics.com/WManage/web/device/inverter/list"},
-    {"name": "Plant Overview", "url": "https://monitor.eg4electronics.com/WManage/web/plant/overview"},
-    {"name": "Old Realtime", "url": "https://monitor.eg4electronics.com/WManage/web/plant/getRealtimeData"},
+    {"name": "Plant Overview", "url": "hhttps://monitor.eg4electronics.com/WManage/web/overview/global"},
+    {"name": "Old Realtime", "url": "https://monitor.eg4electronics.com/WManage/web/overview/globalPlant"},
 ]
 
 # Sensecraft API URL
