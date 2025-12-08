@@ -1,277 +1,203 @@
-import requests
 import os
-import re
-import time
+import requests
+from bs4 import BeautifulSoup
 import sys
+import json
 
-# --- Script Version ---
-SCRIPT_VERSION = "2.7 (Global Overview Table Scraper)"
-print(f"Script Version: {SCRIPT_VERSION}\n")
+# --- Configuration and Environment Variables ---
+SCRIPT_VERSION = "2.9 (Single Variable Sanity Check)"
 
-# --- Configuration (URLs) ---
 EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
 EG4_OVERVIEW_URL = "https://monitor.eg4electronics.com/WManage/web/overview/global"
-SENSECRAFT_PUSH_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
+SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
 
-# --- Helper Function for cleaning and extracting numbers ---
-def clean_and_extract_number(html_text):
-    """
-    Cleans HTML tags from text and extracts the first integer found.
-    Returns 0 if no integer is found.
-    """
-    cleaned_text = re.sub(r'<[^>]+>', '', html_text).strip()
-    match = re.search(r'(\d+)', cleaned_text)
-    if match:
-        return int(match.group(1))
-    return 0
+print(f"Script Version: {SCRIPT_VERSION}")
 
-# --- 1. Login to EG4 Electronics Monitoring Portal ---
-def login_eg4(session, username, password):
-    """
-    Logs into the EG4 portal and returns the requests.Session object.
-    """
-    print("Attempting to log in to EG4 portal...")
-    login_data = {
-        'account': username,
-        'password': password,
-        'isRem': 'false',
-        'lang': 'en_US'
-    }
-    headers = {
-        'Content-Type': 'application/x-www-form-urlencoded'
-    }
+# Load sensitive data from environment variables
+EG4_USER = os.environ.get('EG4_USER')
+EG4_PASS = os.environ.get('EG4_PASS')
+EG4_STATION_ID = os.environ.get('EG4_STATION_ID')
+SENSECRAFT_KEY = os.environ.get('SENSECRAFT_KEY')
 
-    try:
-        response = session.post(EG4_LOGIN_URL, data=login_data, headers=headers, allow_redirects=False, timeout=10)
-        
-        if response.status_code == 302 and '/WManage/web/overview/global' in response.headers.get('Location', ''):
-            print("Successfully logged in to EG4 portal.")
-            return True
-        elif response.status_code == 200 and 'login_error' in response.text: # Check for common login error indicators
-            print(f"Login failed: Incorrect username or password. Response status: {response.status_code}")
-            return False
-        else:
-            print(f"Login attempt returned unexpected status code: {response.status_code}")
-            print("Response content (partial):", response.text[:500]) # Print first 500 chars for debugging
-            return False
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred during EG4 login: {e}")
-        return False
+# Check for required environment variables
+missing_critical_vars = []
+if not EG4_USER:
+    missing_critical_vars.append('EG4_USER')
+if not EG4_PASS:
+    missing_critical_vars.append('EG4_PASS')
+if not SENSECRAFT_KEY:
+    missing_critical_vars.append('SENSECRAFT_KEY')
 
-# --- 2. SANITY CHECK (Sensecraft API) ---
-def check_sensecraft_api(api_key, device_id):
-    """
-    Verifies Sensecraft API connection by pushing a test battery_soc.
-    """
-    print("\nPerforming Sensecraft API sanity check...")
-    payload = {
-        "device_id": device_id,
-        "data": {"battery_soc": 50}
-    }
-    headers = {
-        'api-key': api_key,
-        'Content-Type': 'application/json'
-    }
+if missing_critical_vars:
+    print(f"ERROR: Missing critical environment variables: {', '.join(missing_critical_vars)}")
+    print("Please set EG4_USER, EG4_PASS, and SENSECRAFT_KEY before running the script.")
+    sys.exit(1)
 
-    try:
-        response = requests.post(SENSECRAFT_PUSH_URL, json=payload, headers=headers, timeout=10)
-        if response.status_code == 200:
-            print("Sensecraft API sanity check successful (200 OK).")
-            return True
-        elif response.status_code == 500:
-            print(f"Sensecraft API sanity check received 500 error: {response.text}")
-            print("Ensure 'battery_soc' is defined as a widget in your Sensecraft Dashboard.")
-            return False
-        else:
-            print(f"Sensecraft API sanity check failed with status code {response.status_code}.")
-            print(f"Response: {response.text}")
-            return False
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred during Sensecraft API sanity check: {e}")
-        return False
+# EG4_STATION_ID is used for data push to Sensecraft.
+# If it's not set, we'll use the default ID provided in the prompt's example for Sensecraft.
+if not EG4_STATION_ID:
+    print("WARNING: EG4_STATION_ID environment variable is not set. Data push to Sensecraft will use the default device_id '20221942' from the prompt's example.")
+    EG4_STATION_ID = "20221942" # Default value as per prompt's example for Sensecraft device_id
 
-# --- 3. DATA ACQUISITION (Table Scraping V2.7) ---
-def scrape_eg4_overview(session, target_station_name=None):
-    """
-    Scrapes the EG4 global overview page for power and SOC data.
-    """
-    print("\nAcquiring data from EG4 overview page...")
-    data = {
-        "pv_power": 0,
-        "battery_soc": 0,
-        "load_power": 0,
-        "charge_power": 0,
-        "discharge_power": 0,
-        "net_battery_watts": 0
-    }
+# --- Step 1: Login to EG4 Monitoring Portal ---
+session = requests.Session()
+login_data = {
+    'account': EG4_USER,
+    'password': EG4_PASS,
+    'isRem': 'false',
+    'lang': 'en_US'
+}
+login_headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+}
 
-    try:
-        response = session.get(EG4_OVERVIEW_URL, timeout=15)
-        response.raise_for_status() # Raise an exception for HTTP errors
+print("Attempting to log in to EG4 portal...")
+try:
+    response = session.post(EG4_LOGIN_URL, data=login_data, headers=login_headers, timeout=10)
+    response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
 
-        html_content = response.text
-        
-        # Regex to find all table rows
-        rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html_content, re.DOTALL)
-
-        if not rows:
-            print("Warning: No table rows found on the EG4 overview page.")
-            return data
-
-        # Skip header row (assuming first row is header)
-        data_rows = rows[1:] 
-
-        target_row_cells = None
-        for row_content in data_rows:
-            cells = re.findall(r"<td[^>]*>(.*?)</td>", row_content, re.DOTALL)
-            if len(cells) > 1: # Ensure it's a data row
-                status = re.sub(r'<[^>]+>', '', cells[1]).strip() # Status is at index 1
-                name = re.sub(r'<[^>]+>', '', cells[0]).strip() # Name is at index 0
-
-                if (status == "Normal" or status == "Offline"):
-                    if target_station_name:
-                        if name == target_station_name:
-                            target_row_cells = cells
-                            print(f"Found target station '{name}' with status '{status}'.")
-                            break
-                    else:
-                        target_row_cells = cells
-                        print(f"Found first station '{name}' with status '{status}'.")
-                        break
-        
-        if not target_row_cells:
-            print("Warning: Could not find any station with 'Normal' or 'Offline' status.")
-            print("Ensure the station is visible on the EG4 overview page.")
-            return data
-
-        # Extract values based on indices
-        # Columns: [Name, Status, SolarPower, ChargePower, DischargePower, Load, SOC, ...]
-        try:
-            data["pv_power"] = clean_and_extract_number(target_row_cells[2]) # SolarPower
-            data["charge_power"] = clean_and_extract_number(target_row_cells[3])
-            data["discharge_power"] = clean_and_extract_number(target_row_cells[4])
-            data["load_power"] = clean_and_extract_number(target_row_cells[5])
-            data["battery_soc"] = clean_and_extract_number(target_row_cells[6])
-            
-            data["net_battery_watts"] = data["charge_power"] - data["discharge_power"]
-
-            print(f"Scraped Data: PV Power={data['pv_power']}W, Charge Power={data['charge_power']}W, "
-                  f"Discharge Power={data['discharge_power']}W, Load Power={data['load_power']}W, "
-                  f"SOC={data['battery_soc']}%, Net Battery Watts={data['net_battery_watts']}W")
-
-        except IndexError as e:
-            print(f"Error parsing table cells: {e}. Check table structure or column indices.")
-            print("Falling back to default 0s for all values.")
-            data = {k: 0 for k in data} # Reset all to 0
-        
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while fetching EG4 overview page: {e}")
-        print("Falling back to default 0s for all values.")
-        data = {k: 0 for k in data} # Reset all to 0
-    
-    return data
-
-# --- 4. REAL DATA PUSH (Sensecraft) ---
-def push_data_to_sensecraft(api_key, device_id, pv_power, battery_soc, load_power):
-    """
-    Pushes extracted data to the Sensecraft API.
-    """
-    print("\nPushing data to Sensecraft...")
-    payload = {
-        "device_id": device_id,
-        "data": {
-            "pv_power": pv_power,
-            "battery_soc": battery_soc,
-            "load_power": load_power
-        }
-    }
-    headers = {
-        'api-key': api_key,
-        'Content-Type': 'application/json'
-    }
-
-    try:
-        response = requests.post(SENSECRAFT_PUSH_URL, json=payload, headers=headers, timeout=10)
-        response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
-        print("Data successfully pushed to Sensecraft.")
-        print(f"Sensecraft Response: {response.status_code} - {response.text}")
-        return True
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while pushing data to Sensecraft: {e}")
-        print(f"Payload sent: {payload}")
-        if hasattr(e, 'response') and e.response is not None:
-            print(f"Sensecraft Error Response: {e.response.status_code} - {e.response.text}")
-        return False
-
-# --- Main Execution ---
-if __name__ == "__main__":
-    # --- Load Environment Variables ---
-    EG4_USER = os.environ.get('EG4_USER')
-    EG4_PASS = os.environ.get('EG4_PASS')
-    EG4_STATION_ID = os.environ.get('EG4_STATION_ID') # Sensecraft device_id
-    EG4_STATION_NAME = os.environ.get('EG4_STATION_NAME') # Optional: to target a specific station by name
-    SENSECRAFT_KEY = os.environ.get('SENSECRAFT_KEY')
-
-    # --- Check for missing critical environment variables ---
-    missing_vars = []
-    if not EG4_USER:
-        missing_vars.append('EG4_USER')
-    if not EG4_PASS:
-        missing_vars.append('EG4_PASS')
-    if not SENSECRAFT_KEY:
-        missing_vars.append('SENSECRAFT_KEY')
-    if not EG4_STATION_ID:
-        missing_vars.append('EG4_STATION_ID') # Treat as critical for Sensecraft push
-
-    if missing_vars:
-        print("\nERROR: The following required environment variables are not set:")
-        for var in missing_vars:
-            print(f"- {var}")
-        print("Please set these variables before running the script.")
-        sys.exit(1)
-
-    print(f"EG4_STATION_ID for Sensecraft: {EG4_STATION_ID}")
-    if EG4_STATION_NAME:
-        print(f"Targeting EG4 Station by Name: {EG4_STATION_NAME}")
+    # Check for successful login. The EG4 portal usually redirects to /WManage/web/overview/global on success.
+    # We can check the final URL after redirects or for a 200 OK.
+    if "overview/global" in response.url or response.status_code == 200:
+        print("Successfully logged in to EG4 portal.")
     else:
-        print("No EG4_STATION_NAME specified. Will scrape data from the first 'Normal' or 'Offline' station found.")
-
-
-    # --- Step 1: Sensecraft API Sanity Check ---
-    if not check_sensecraft_api(SENSECRAFT_KEY, EG4_STATION_ID):
-        print("\nSanity check failed. Aborting script.")
+        print(f"Login failed. Status code: {response.status_code}. Response: {response.text[:200]}...")
         sys.exit(1)
+except requests.exceptions.RequestException as e:
+    print(f"ERROR during EG4 login: {e}")
+    sys.exit(1)
 
-    # --- Initialize requests session ---
-    eg4_session = requests.Session()
+# --- Step 2: Sanity Check (Version 2.9 - Single Variable Test) ---
+print("Sending Sanity Check (battery_soc only)...")
+sensecraft_headers = {
+    'api-key': SENSECRAFT_KEY,
+    'Content-Type': 'application/json'
+}
+sanity_payload = {
+    "device_id": EG4_STATION_ID,
+    "data": {
+        "battery_soc": 50
+    }
+}
 
-    # --- Step 2: Login to EG4 Portal ---
-    if not login_eg4(eg4_session, EG4_USER, EG4_PASS):
-        print("\nEG4 login failed. Aborting script.")
-        sys.exit(1)
-    
-    # After successful login, make a GET request to the overview page
-    # The session should automatically handle the redirect if allow_redirects was True
-    # or follow the 302 redirect manually if allow_redirects=False was used in post
-    # and then subsequent requests will use the session cookies.
-    # We already have a valid session from login.
-
-    # --- Step 3: Scrape Data ---
-    scraped_data = scrape_eg4_overview(eg4_session, EG4_STATION_NAME)
-
-    if scraped_data["pv_power"] == 0 and \
-       scraped_data["battery_soc"] == 0 and \
-       scraped_data["load_power"] == 0:
-        print("\nWarning: All scraped data values are zero or scraping failed significantly. Check EG4 portal accessibility or table structure.")
-        # Decide if you want to push zeros or abort. For now, we'll proceed to push zeros.
-
-    # --- Step 4: Push Data to Sensecraft ---
-    push_data_to_sensecraft(
-        SENSECRAFT_KEY,
-        EG4_STATION_ID,
-        scraped_data["pv_power"],
-        scraped_data["battery_soc"],
-        scraped_data["load_power"]
+try:
+    sanity_response = requests.post(
+        SENSECRAFT_API_URL,
+        headers=sensecraft_headers,
+        json=sanity_payload,
+        timeout=10
     )
+    if sanity_response.status_code == 200:
+        print("Sanity Check Passed.")
+    else:
+        print(f"Sanity Check Failed. Error {sanity_response.status_code}. Response: {sanity_response.text}")
+        sys.exit(1)
+except requests.exceptions.RequestException as e:
+    print(f"ERROR during Sanity Check request: {e}")
+    sys.exit(1)
 
-    print("\nScript execution finished.")
+# --- Step 3: Data Acquisition (Table Scraping) ---
+print("Attempting to acquire data from EG4 overview page...")
+int_solar = 0
+int_load = 0
+int_soc = 0
+
+try:
+    overview_response = session.get(EG4_OVERVIEW_URL, timeout=10)
+    overview_response.raise_for_status()
+    soup = BeautifulSoup(overview_response.text, 'html.parser')
+
+    # Find the main table. Adjust selector if necessary (e.g., table with a specific class or ID).
+    table = soup.find('table') 
+
+    if not table:
+        raise ValueError("Could not find any table on the EG4 overview page.")
+
+    # Find all table rows. Skip header rows if present.
+    rows = table.find_all('tr')
+
+    found_data_row = False
+    for row in rows:
+        cells = row.find_all('td')
+        # A data row is expected to have multiple columns and a status like "Normal" or "Offline"
+        if len(cells) > 6 and (
+            "Normal" in cells[1].get_text(strip=True) or
+            "Offline" in cells[1].get_text(strip=True)
+        ):
+            # This is likely a data row containing the inverter's status
+            try:
+                # SolarPower (Column Index 2)
+                solar_text = cells[2].get_text(strip=True).replace(' W', '')
+                int_solar = int(float(solar_text)) # Convert to float first to handle potential decimals
+
+                # Load (Column Index 5)
+                load_text = cells[5].get_text(strip=True).replace(' W', '')
+                int_load = int(float(load_text))
+
+                # SOC (Column Index 6)
+                soc_text = cells[6].get_text(strip=True).replace(' %', '')
+                int_soc = int(float(soc_text))
+
+                found_data_row = True
+                break # Found and parsed the first relevant data row, exit loop
+
+            except (IndexError, ValueError) as e:
+                print(f"WARNING: Error parsing data from a potential data row ({row.get_text(strip=True)[:100]}...): {e}. Defaulting values to 0 for this row.")
+                # If parsing fails for a specific row, continue to the next one, or use defaults.
+                # For this script, we'll break and use the defaults if parsing *our chosen* row fails.
+                int_solar = 0
+                int_load = 0
+                int_soc = 0
+                break # Stop after first identified data row, even if parsing failed partially
+
+    if found_data_row:
+        print(f"Data acquired: SolarPower={int_solar}W, Load={int_load}W, SOC={int_soc}%")
+    else:
+        print("WARNING: No data row with 'Normal' or 'Offline' status found on the EG4 overview page. Defaulting all values to 0.")
+
+except requests.exceptions.RequestException as e:
+    print(f"ERROR during EG4 data acquisition request: {e}. Defaulting all values to 0.")
+except ValueError as e:
+    print(f"ERROR during data acquisition (HTML parsing): {e}. Defaulting all values to 0.")
+except Exception as e:
+    print(f"An unexpected error occurred during data acquisition: {e}. Defaulting all values to 0.")
+
+# --- Step 4: Real Data Push ---
+print("Attempting to push real data to Sensecraft HMI API...")
+
+real_data_payload = {
+    "device_id": EG4_STATION_ID,
+    "data": {
+        "battery_soc": int_soc,
+        "pv_power": int_solar,
+        "load_power": int_load
+    }
+}
+
+try:
+    push_response = requests.post(
+        SENSECRAFT_API_URL,
+        headers=sensecraft_headers,
+        json=real_data_payload,
+        timeout=10
+    )
+    push_response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+
+    print("Real Data Push successful.")
+    # print(f"Sensecraft response: {push_response.text}") # Uncomment for debugging
+
+except requests.exceptions.HTTPError as e:
+    if e.response.status_code == 500:
+        print(f"Real Data Push failed with 500 error. Ensure 'pv_power' and 'load_power' are also defined as Data Keys in your Sensecraft Dashboard. Details: {e.response.text}")
+    else:
+        print(f"Real Data Push failed with HTTP Error {e.response.status_code}: {e.response.text}")
+    sys.exit(1)
+except requests.exceptions.RequestException as e:
+    print(f"ERROR during Real Data Push request: {e}")
+    sys.exit(1)
+except Exception as e:
+    print(f"An unexpected error occurred during Real Data Push: {e}")
+    sys.exit(1)
+
+print("Script finished successfully.")
