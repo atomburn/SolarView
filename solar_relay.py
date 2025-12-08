@@ -66,57 +66,65 @@ except requests.exceptions.RequestException as e:
     print(f"ERROR: EG4 Login request failed: {e}")
     sys.exit(1)
 
-# --- 2. SANITY CHECK - Try different payload formats ---
-print("\n--- Testing SenseCraft API with different formats ---")
+# --- 2. SANITY CHECK - Try API key in URL ---
+print("\n--- Testing SenseCraft API with API key in URL ---")
 print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
 print(f"API Key (first 8 chars): {SENSECRAFT_KEY[:8]}...")
 
-# Use Authorization Bearer header (confirmed to get HTTP 200)
-working_headers = {
-    "Authorization": f"Bearer {SENSECRAFT_KEY}",
-    "Content-Type": "application/json"
-}
+# Try API key in URL (as suggested by SenseCraft: "?apikey=...")
+url_with_key = f"{SENSECRAFT_API_URL}?apikey={SENSECRAFT_KEY}"
+print(f"URL with apikey: {SENSECRAFT_API_URL}?apikey=***")
 
-# Try different payload formats to find what SenseCraft accepts
-payload_variations = [
-    ("device_id as int", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": 50}}),
-    ("device_id as string", {"device_id": str(SENSECRAFT_DEVICE_ID), "data": {"battery_soc": 50}}),
-    ("battery_soc as float", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": 50.0}}),
-    ("battery_soc as string", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": "50"}}),
-    ("value field instead", {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": {"value": 50}}}),
-    ("flat structure", {"device_id": SENSECRAFT_DEVICE_ID, "battery_soc": 50}),
+# Simple headers without auth (since key is in URL)
+simple_headers = {"Content-Type": "application/json"}
+
+# Also try different header combinations with URL key
+test_configs = [
+    ("apikey in URL only", url_with_key, simple_headers),
+    ("apikey in URL + api-key header", url_with_key, {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+    ("base URL + api-key header", SENSECRAFT_API_URL, {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}),
 ]
 
+payload = {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": 50}}
+print(f"Payload: {payload}")
+
+working_headers = None
+working_url = None
 success = False
-for desc, payload in payload_variations:
+
+for desc, url, headers in test_configs:
     print(f"\nTrying: {desc}")
-    print(f"  Payload: {payload}")
     try:
-        response = requests.post(SENSECRAFT_API_URL, json=payload, headers=working_headers, timeout=10)
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
         print(f"  HTTP Status: {response.status_code}")
         print(f"  Response: {response.text[:300] if response.text else '(empty)'}")
 
-        # Check both HTTP status and response body
         if response.status_code == 200:
             try:
                 resp_json = response.json()
                 resp_code = resp_json.get('code', 0)
                 if resp_code == 0 or resp_code == 200:
-                    print(f"  SUCCESS! Format '{desc}' works!")
+                    print(f"  SUCCESS! '{desc}' works!")
+                    working_headers = headers
+                    working_url = url
                     success = True
                     break
                 else:
                     print(f"  API returned error code: {resp_code}")
             except:
-                # No JSON body or parsing error - might still be success
                 print("  SUCCESS (no error code in response)")
+                working_headers = headers
+                working_url = url
                 success = True
                 break
     except Exception as e:
         print(f"  Error: {e}")
 
 if not success:
-    print("\nWARNING: All payload formats returned errors. Continuing anyway to see full output...")
+    print("\nWARNING: All configurations returned errors.")
+    # Default to api-key header for further attempts
+    working_headers = {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}
+    working_url = SENSECRAFT_API_URL
 
 print("\nSanity Check complete.")
 
@@ -226,7 +234,8 @@ real_data_payload = {
 }
 
 try:
-    real_data_response = requests.post(SENSECRAFT_API_URL, json=real_data_payload, headers=working_headers, timeout=10)
+    push_url = working_url if working_url else SENSECRAFT_API_URL
+    real_data_response = requests.post(push_url, json=real_data_payload, headers=working_headers, timeout=10)
     real_data_response.raise_for_status()
 
     print(f"Real Data Push successful! Status Code: {real_data_response.status_code}")
