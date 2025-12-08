@@ -66,30 +66,47 @@ except requests.exceptions.RequestException as e:
     print(f"ERROR: EG4 Login request failed: {e}")
     sys.exit(1)
 
-# --- 2. SANITY CHECK (Version 3.0 - Dependency Fix) ---
-print("\nSending Sanity Check (battery_soc only)...")
+# --- 2. SANITY CHECK - Try multiple header formats ---
+print("\n--- Testing SenseCraft API with multiple header formats ---")
 sanity_check_payload = {
     "device_id": SENSECRAFT_DEVICE_ID,
     "data": {
         "battery_soc": 50
     }
 }
-sensecraft_headers = {
-    "api-key": SENSECRAFT_KEY,
-    "Content-Type": "application/json"
-}
 
-try:
-    sanity_response = requests.post(SENSECRAFT_API_URL, json=sanity_check_payload, headers=sensecraft_headers, timeout=10)
-    sanity_response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
+print(f"API Key (first 8 chars): {SENSECRAFT_KEY[:8]}...")
+print(f"Payload: {sanity_check_payload}")
 
-    print("Sanity Check Passed.")
-except requests.exceptions.RequestException as e:
-    if hasattr(e, 'response') and e.response is not None:
-        print(f"ERROR: Sanity Check failed. Status Code: {e.response.status_code}. Response: {e.response.text}")
-    else:
-        print(f"ERROR: Sanity Check failed: {e}")
+# Try different header formats
+header_variations = [
+    ("api-key", {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+    ("X-API-KEY", {"X-API-KEY": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+    ("Authorization Bearer", {"Authorization": f"Bearer {SENSECRAFT_KEY}", "Content-Type": "application/json"}),
+    ("Authorization", {"Authorization": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+]
+
+working_headers = None
+for header_name, headers in header_variations:
+    print(f"\nTrying '{header_name}' header...")
+    try:
+        response = requests.post(SENSECRAFT_API_URL, json=sanity_check_payload, headers=headers, timeout=10)
+        print(f"  Status: {response.status_code}")
+        print(f"  Response: {response.text[:200] if response.text else '(empty)'}")
+
+        if response.status_code == 200:
+            print(f"  SUCCESS with '{header_name}'!")
+            working_headers = headers
+            break
+    except Exception as e:
+        print(f"  Error: {e}")
+
+if not working_headers:
+    print("\nERROR: All header formats failed. Check API key and device ID.")
     sys.exit(1)
+
+print("\nSanity Check Passed!")
 
 # --- 3. DATA ACQUISITION (Table Scraping) ---
 print("\nAcquiring data from EG4 overview page...")
@@ -197,7 +214,7 @@ real_data_payload = {
 }
 
 try:
-    real_data_response = requests.post(SENSECRAFT_API_URL, json=real_data_payload, headers=sensecraft_headers, timeout=10)
+    real_data_response = requests.post(SENSECRAFT_API_URL, json=real_data_payload, headers=working_headers, timeout=10)
     real_data_response.raise_for_status()
 
     print(f"Real Data Push successful! Status Code: {real_data_response.status_code}")
