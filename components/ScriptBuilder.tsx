@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserCredentials } from '../types';
 import { generatePythonScript, generateGithubWorkflow } from '../services/geminiService';
-import { Terminal, Cpu, Loader2, CloudUpload, Github, FileJson, FileCode } from 'lucide-react';
+import { Terminal, Cpu, Loader2, CloudUpload, Github, FileJson, FileCode, ExternalLink, Lock, PlayCircle } from 'lucide-react';
 
 interface ScriptBuilderProps {
   initialCreds: UserCredentials;
@@ -14,6 +14,7 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'direct' | 'relay'>('relay');
   const [relayType, setRelayType] = useState<'local' | 'github'>('local');
+  const [repoUrl, setRepoUrl] = useState<string>('');
 
   const handleGenerate = async () => {
     setLoading(true);
@@ -30,6 +31,18 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
     }
 
     setLoading(false);
+  };
+
+  const getSecretLink = () => {
+    if (!repoUrl) return '#';
+    const cleanUrl = repoUrl.replace(/\/$/, '');
+    return `${cleanUrl}/settings/secrets/actions`;
+  };
+
+  const getActionsLink = () => {
+    if (!repoUrl) return '#';
+    const cleanUrl = repoUrl.replace(/\/$/, '');
+    return `${cleanUrl}/actions`;
   };
 
   return (
@@ -86,6 +99,23 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
                     </button>
                 </div>
             </div>
+        )}
+
+        {/* GitHub Specific Input */}
+        {mode === 'relay' && relayType === 'github' && (
+             <div className="mb-6 animate-refresh">
+                <label className="block text-xs font-bold uppercase mb-1">Your GitHub Repo URL</label>
+                <div className="flex gap-2">
+                    <input 
+                    type="text" 
+                    placeholder="https://github.com/username/my-solar-repo"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    className="flex-1 border-2 border-black p-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white"
+                    />
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1">Paste your URL to generate direct links to your settings.</p>
+             </div>
         )}
 
         <p className="text-sm text-gray-600 mb-6 font-mono">
@@ -175,6 +205,40 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
 
       {script && (
         <div className="space-y-6">
+            
+            {/* Action Buttons for GitHub */}
+            {mode === 'relay' && relayType === 'github' && repoUrl && (
+                <div className="bg-white border-2 border-black p-4 flex flex-col md:flex-row gap-4 items-center justify-between shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                    <div className="flex items-center gap-3">
+                         <div className="bg-black text-white p-2 rounded-full">
+                            <Lock className="w-5 h-5" />
+                         </div>
+                         <div>
+                            <h4 className="font-bold text-sm uppercase">Step 3: Configure Secrets</h4>
+                            <p className="text-xs text-gray-600">Add EG4_USER, EG4_PASS, SENSECRAFT_KEY</p>
+                         </div>
+                    </div>
+                    <div className="flex gap-2 w-full md:w-auto">
+                        <a 
+                            href={getSecretLink()} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-black text-white font-bold text-xs uppercase hover:bg-gray-800"
+                        >
+                            Open Secrets <ExternalLink className="w-3 h-3" />
+                        </a>
+                         <a 
+                            href={getActionsLink()} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 border-2 border-black font-bold text-xs uppercase hover:bg-gray-100"
+                        >
+                            Check Status <PlayCircle className="w-3 h-3" />
+                        </a>
+                    </div>
+                </div>
+            )}
+
             <div className="bg-slate-100 border-2 border-black p-4 relative">
                 <div className="absolute top-0 right-0 p-2 z-10">
                     <button 
@@ -215,15 +279,19 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
 
           <div className="flex gap-2">
              <div className="flex-1 bg-white border border-black p-3 text-xs">
-                <strong>How to Deploy:</strong>
+                <strong>Deployment Steps:</strong>
                 {mode === 'relay' && relayType === 'github' ? (
                   <ol className="list-decimal list-inside mt-1 space-y-1">
-                      <li>Create a new <strong>Private</strong> GitHub Repository.</li>
-                      <li>Add the file <code>solar_relay.py</code> to the root.</li>
-                      <li>Add the file <code>.github/workflows/solar_sync.yml</code>.</li>
-                      <li>Go to Repo Settings &gt; Secrets and Variables &gt; Actions.</li>
-                      <li>Add Repository Secrets: <code>EG4_USER</code>, <code>EG4_PASS</code>, <code>SENSECRAFT_KEY</code>.</li>
-                      <li>Commit changes. The action will run every 5 minutes automatically.</li>
+                      <li>Ensure files are committed to your repo: <code>solar_relay.py</code> and <code>.github/workflows/solar_sync.yml</code>.</li>
+                      <li>
+                        Click <strong>Open Secrets</strong> above. Add 3 new Repository Secrets:
+                        <ul className="list-disc list-inside ml-4 text-gray-600 mt-1 mb-1">
+                            <li>Name: <code>EG4_USER</code> &rarr; Value: (Your Username)</li>
+                            <li>Name: <code>EG4_PASS</code> &rarr; Value: (Your Password)</li>
+                            <li>Name: <code>SENSECRAFT_KEY</code> &rarr; Value: (Your API Key)</li>
+                        </ul>
+                      </li>
+                      <li>Click <strong>Check Status</strong> to see the workflow run!</li>
                   </ol>
                 ) : mode === 'relay' ? (
                   <ol className="list-decimal list-inside mt-1 space-y-1">
