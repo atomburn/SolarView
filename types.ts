@@ -12,6 +12,7 @@ export interface InverterData {
 export interface UserCredentials {
   username: string;
   password?: string;
+  stationId?: string;
   inverterSn?: string;
   displaySn?: string;
   sensecraftApiKey?: string;

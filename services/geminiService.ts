@@ -42,7 +42,7 @@ export const generatePythonScript = async (creds: UserCredentials, mode: 'direct
     let prompt = "";
     
     const envVarNote = useEnvVars 
-      ? `IMPORTANT: Do NOT hardcode credentials. Use os.environ.get('EG4_USER'), os.environ.get('EG4_PASSWORD'), os.environ.get('SENSECRAFT_KEY') etc. for all sensitive data. Add a check to print a warning if they are missing.` 
+      ? `IMPORTANT: Do NOT hardcode credentials. Use os.environ.get('EG4_USER'), os.environ.get('EG4_PASS'), os.environ.get('EG4_STATION_ID'), os.environ.get('SENSECRAFT_KEY') etc. for all sensitive data. Add a check to print a warning if they are missing (except STATION_ID which can be optional/auto-detected).` 
       : `Embed the credentials directly in the variables for simplicity.`;
 
     if (mode === 'relay') {
@@ -53,8 +53,12 @@ export const generatePythonScript = async (creds: UserCredentials, mode: 'direct
         1. Login to the EG4 Electronics Monitoring Portal (https://monitor.eg4electronics.com/WManage/web/login) using requests.Session().
            - Username: ${useEnvVars ? "Load from Env Var 'EG4_USER'" : creds.username}
            - Password: ${useEnvVars ? "Load from Env Var 'EG4_PASS'" : creds.password}
-           - Note: Since the exact API endpoints might change, define variables for LOGIN_URL and DATA_URL at the top with best-guess paths (e.g., /WManage/api/login, /WManage/api/device/getData).
-           - The script should attempt to fetch the latest Inverter Data (PV Power, Battery SOC, Load Power).
+           - Station ID: ${useEnvVars ? "Load from Env Var 'EG4_STATION_ID'" : creds.stationId}
+           
+           IMPORTANT LOGIN LOGIC:
+           - Since the exact API endpoints might change, define variables for LOGIN_URL and DATA_URL at the top with best-guess paths.
+           - If 'EG4_STATION_ID' is NOT provided (None), the script MUST automatically fetch the list of stations/plants associated with the user and select the first one found.
+           - The script should then attempt to fetch the latest Inverter Data (PV Power, Battery SOC, Load Power).
         
         2. Format that data and PUSH it to the Sensecraft API.
            - Endpoint: https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data
@@ -90,6 +94,7 @@ export const generatePythonScript = async (creds: UserCredentials, mode: 'direct
         User Details:
         - Inverter User: ${creds.username}
         - Inverter PW: ${creds.password}
+        - Station ID: ${creds.stationId || "Auto-detect"}
         - ReTerminal SN: ${creds.displaySn}
         
         Requirements:
@@ -137,6 +142,7 @@ export const generateGithubWorkflow = async (): Promise<string> => {
       - Environment Variables:
         - Map 'EG4_USER' to secrets.EG4_USER
         - Map 'EG4_PASS' to secrets.EG4_PASS
+        - Map 'EG4_STATION_ID' to secrets.EG4_STATION_ID (Make sure to include this!)
         - Map 'SENSECRAFT_KEY' to secrets.SENSECRAFT_KEY
       
       Output ONLY the raw YAML code.

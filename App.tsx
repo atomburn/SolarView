@@ -8,6 +8,7 @@ import { Sun, Battery, Home, Zap, RefreshCw, LayoutTemplate, Settings, Power, Wi
 const MOCK_CREDENTIALS: UserCredentials = {
   username: 'AdamByrne',
   password: 'Solar123',
+  stationId: '',
   displaySn: '100073581253500339',
   sensecraftDeviceId: '20221942',
   sensecraftApiKey: ''
@@ -136,11 +137,11 @@ const App: React.FC = () => {
                 <div className="bg-slate-100 border-l-4 border-black p-4 text-sm flex gap-3 items-start">
                      <Info className="w-5 h-5 flex-shrink-0" />
                      <div>
-                        <p className="font-bold mb-1">Why is this data simulated?</p>
+                        <p className="font-bold mb-1">Simulation Mode Active</p>
                         <p className="text-gray-700">
-                            Web browsers cannot securely connect directly to the EG4 inverter login page due to security restrictions (CORS). 
-                            To view your <strong>actual real-time data</strong>, go to the <strong>Hardware Setup</strong> tab and set up the Cloud Relay script. 
-                            This dashboard is currently showing a preview of what the interface will look like.
+                            This dashboard is a <strong>configuration tool</strong>. It does not connect to your inverter directly.
+                            <br/>
+                            Once you set up the <strong>Cloud Relay</strong> (Hardware Setup tab), your <strong>physical reTerminal E1001</strong> will display the real live data.
                         </p>
                      </div>
                 </div>
