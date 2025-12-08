@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserCredentials } from '../types';
 import { generatePythonScript, generateGithubWorkflow } from '../services/geminiService';
-import { Terminal, Cpu, Loader2, CloudUpload, Github, FileJson, FileCode, ExternalLink, Lock, PlayCircle } from 'lucide-react';
+import { Terminal, Cpu, Loader2, CloudUpload, Github, FileJson, FileCode, ExternalLink, Lock, PlayCircle, CheckCircle, ArrowRight, HelpCircle } from 'lucide-react';
 
 interface ScriptBuilderProps {
   initialCreds: UserCredentials;
@@ -34,13 +34,13 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
   };
 
   const getSecretLink = () => {
-    if (!repoUrl) return '#';
+    if (!repoUrl) return 'https://github.com';
     const cleanUrl = repoUrl.replace(/\/$/, '');
     return `${cleanUrl}/settings/secrets/actions`;
   };
 
   const getActionsLink = () => {
-    if (!repoUrl) return '#';
+    if (!repoUrl) return 'https://github.com';
     const cleanUrl = repoUrl.replace(/\/$/, '');
     return `${cleanUrl}/actions`;
   };
@@ -114,13 +114,13 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
                     className="flex-1 border-2 border-black p-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-black bg-white"
                     />
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1">Paste your URL to generate direct links to your settings.</p>
+                <p className="text-[10px] text-gray-500 mt-1">Paste your URL to enable the smart setup buttons below.</p>
              </div>
         )}
 
         <p className="text-sm text-gray-600 mb-6 font-mono">
           {mode === 'relay' && relayType === 'github' 
-             ? "Generates a Python script and a GitHub Workflow YAML. Commit these to a private repo, set your Secrets, and GitHub will run the relay for you automatically."
+             ? "Automate the data relay using GitHub's free cloud servers. You don't need to leave your computer on."
              : mode === 'relay' 
                 ? "Generates a Python script that scrapes EG4 data and pushes it to the Sensecraft API. Designed to run on an always-on computer."
                 : "Generates a Python script to run ON the reTerminal itself to fetch data and draw directly to the screen frame buffer."}
@@ -199,116 +199,131 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
           className="w-full bg-black text-white py-3 font-bold hover:bg-gray-800 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
         >
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Terminal className="w-4 h-4" />}
-          {loading ? 'GENERATE DEPLOYMENT CODE' : 'GENERATE DEPLOYMENT CODE'}
+          {loading ? 'GENERATING CODE...' : 'GENERATE DEPLOYMENT CODE'}
         </button>
       </div>
 
       {script && (
-        <div className="space-y-6">
+        <div className="space-y-8">
             
-            {/* Action Buttons for GitHub */}
-            {mode === 'relay' && relayType === 'github' && repoUrl && (
-                <div className="bg-white border-2 border-black p-4 flex flex-col md:flex-row gap-4 items-center justify-between shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                    <div className="flex items-center gap-3">
-                         <div className="bg-black text-white p-2 rounded-full">
-                            <Lock className="w-5 h-5" />
-                         </div>
-                         <div>
-                            <h4 className="font-bold text-sm uppercase">Step 3: Configure Secrets</h4>
-                            <p className="text-xs text-gray-600">Add EG4_USER, EG4_PASS, SENSECRAFT_KEY</p>
-                         </div>
-                    </div>
-                    <div className="flex gap-2 w-full md:w-auto">
-                        <a 
-                            href={getSecretLink()} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 bg-black text-white font-bold text-xs uppercase hover:bg-gray-800"
-                        >
-                            Open Secrets <ExternalLink className="w-3 h-3" />
-                        </a>
-                         <a 
-                            href={getActionsLink()} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2 border-2 border-black font-bold text-xs uppercase hover:bg-gray-100"
-                        >
-                            Check Status <PlayCircle className="w-3 h-3" />
-                        </a>
-                    </div>
-                </div>
-            )}
-
-            <div className="bg-slate-100 border-2 border-black p-4 relative">
-                <div className="absolute top-0 right-0 p-2 z-10">
-                    <button 
-                        onClick={() => navigator.clipboard.writeText(script)}
-                        className="text-xs bg-white border border-black px-2 py-1 hover:bg-black hover:text-white transition-colors"
-                    >
-                        COPY
-                    </button>
-                </div>
-                <h3 className="text-sm font-bold uppercase mb-2 flex items-center gap-2">
-                    <FileCode className="w-4 h-4" />
-                    {mode === 'relay' ? 'solar_relay.py' : 'solar_display.py'}
-                </h3>
-                <pre className="text-xs font-mono overflow-x-auto whitespace-pre-wrap text-slate-800 h-96 overflow-y-scroll border border-gray-300 p-2 bg-white">
-                    {script}
-                </pre>
-            </div>
-
-            {workflow && (
+            {/* FILE OUTPUTS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-slate-100 border-2 border-black p-4 relative">
                     <div className="absolute top-0 right-0 p-2 z-10">
                         <button 
-                            onClick={() => navigator.clipboard.writeText(workflow)}
+                            onClick={() => navigator.clipboard.writeText(script)}
                             className="text-xs bg-white border border-black px-2 py-1 hover:bg-black hover:text-white transition-colors"
                         >
                             COPY
                         </button>
                     </div>
                     <h3 className="text-sm font-bold uppercase mb-2 flex items-center gap-2">
-                        <FileJson className="w-4 h-4" />
-                        .github/workflows/solar_sync.yml
+                        <FileCode className="w-4 h-4" />
+                        {mode === 'relay' ? 'solar_relay.py' : 'solar_display.py'}
                     </h3>
-                    <pre className="text-xs font-mono overflow-x-auto whitespace-pre-wrap text-slate-800 h-64 overflow-y-scroll border border-gray-300 p-2 bg-white">
-                        {workflow}
+                    <pre className="text-[10px] font-mono overflow-x-auto whitespace-pre-wrap text-slate-800 h-64 overflow-y-scroll border border-gray-300 p-2 bg-white">
+                        {script}
                     </pre>
                 </div>
-            )}
 
-          <div className="flex gap-2">
-             <div className="flex-1 bg-white border border-black p-3 text-xs">
-                <strong>Deployment Steps:</strong>
-                {mode === 'relay' && relayType === 'github' ? (
-                  <ol className="list-decimal list-inside mt-1 space-y-1">
-                      <li>Ensure files are committed to your repo: <code>solar_relay.py</code> and <code>.github/workflows/solar_sync.yml</code>.</li>
-                      <li>
-                        Click <strong>Open Secrets</strong> above. Add 3 new Repository Secrets:
-                        <ul className="list-disc list-inside ml-4 text-gray-600 mt-1 mb-1">
-                            <li>Name: <code>EG4_USER</code> &rarr; Value: (Your Username)</li>
-                            <li>Name: <code>EG4_PASS</code> &rarr; Value: (Your Password)</li>
-                            <li>Name: <code>SENSECRAFT_KEY</code> &rarr; Value: (Your API Key)</li>
-                        </ul>
-                      </li>
-                      <li>Click <strong>Check Status</strong> to see the workflow run!</li>
-                  </ol>
-                ) : mode === 'relay' ? (
-                  <ol className="list-decimal list-inside mt-1 space-y-1">
-                      <li>Save as <code>solar_relay.py</code> on a server/Pi.</li>
-                      <li>Install: <code>pip3 install requests</code></li>
-                      <li>Run: <code>python3 solar_relay.py</code></li>
-                  </ol>
-                ) : (
-                  <ol className="list-decimal list-inside mt-1 space-y-1">
-                      <li>SSH into reTerminal.</li>
-                      <li>Install: <code>pip3 install requests pillow gpiozero</code></li>
-                      <li>Save as <code>solar_display.py</code></li>
-                      <li>Run: <code>python3 solar_display.py</code></li>
-                  </ol>
+                {workflow && (
+                    <div className="bg-slate-100 border-2 border-black p-4 relative">
+                        <div className="absolute top-0 right-0 p-2 z-10">
+                            <button 
+                                onClick={() => navigator.clipboard.writeText(workflow)}
+                                className="text-xs bg-white border border-black px-2 py-1 hover:bg-black hover:text-white transition-colors"
+                            >
+                                COPY
+                            </button>
+                        </div>
+                        <h3 className="text-sm font-bold uppercase mb-2 flex items-center gap-2">
+                            <FileJson className="w-4 h-4" />
+                            .github/workflows/solar_sync.yml
+                        </h3>
+                        <pre className="text-[10px] font-mono overflow-x-auto whitespace-pre-wrap text-slate-800 h-64 overflow-y-scroll border border-gray-300 p-2 bg-white">
+                            {workflow}
+                        </pre>
+                    </div>
                 )}
-             </div>
-          </div>
+            </div>
+
+            {/* STEP BY STEP GUIDE */}
+            {mode === 'relay' && relayType === 'github' && (
+                <div className="border-t-4 border-black pt-8">
+                     <div className="flex items-center gap-3 mb-6">
+                        <HelpCircle className="w-6 h-6" />
+                        <h3 className="text-xl font-black uppercase">Installation Manual</h3>
+                     </div>
+
+                     <div className="space-y-6">
+                        
+                        {/* STEP 1 */}
+                        <div className="flex gap-4">
+                            <div className="w-8 h-8 bg-black text-white flex items-center justify-center font-bold shrink-0">1</div>
+                            <div className="flex-1">
+                                <h4 className="font-bold uppercase text-sm mb-1">Check Files</h4>
+                                <p className="text-sm text-gray-600 mb-2">Ensure your GitHub repository has exactly these two files:</p>
+                                <ul className="text-xs font-mono bg-gray-100 p-2 border border-gray-300 space-y-1">
+                                    <li className="flex items-center gap-2"><CheckCircle className="w-3 h-3 text-green-600" /> solar_relay.py <span className="text-gray-400">(The Code)</span></li>
+                                    <li className="flex items-center gap-2"><CheckCircle className="w-3 h-3 text-green-600" /> .github/workflows/solar_sync.yml <span className="text-gray-400">(The Timer)</span></li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        {/* STEP 2 */}
+                        <div className="flex gap-4">
+                             <div className="w-8 h-8 bg-black text-white flex items-center justify-center font-bold shrink-0">2</div>
+                             <div className="flex-1">
+                                <h4 className="font-bold uppercase text-sm mb-1">Add Safe Credentials</h4>
+                                <p className="text-sm text-gray-600 mb-2">GitHub needs your passwords to log in for you, but we don't put them in the code file.</p>
+                                
+                                {repoUrl ? (
+                                    <a href={getSecretLink()} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-black text-white px-4 py-2 text-xs font-bold uppercase hover:bg-gray-800 mb-3">
+                                        Open Secrets Page <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                ) : (
+                                    <p className="text-xs bg-yellow-50 p-2 border border-yellow-200 mb-2 text-yellow-800">
+                                        Enter your Repo URL at the top to get a direct link here.
+                                    </p>
+                                )}
+
+                                <p className="text-xs text-gray-500 mb-2">Click <strong>"New repository secret"</strong> for each of these:</p>
+
+                                <div className="grid grid-cols-1 gap-2">
+                                    <div className="flex items-center justify-between bg-white border border-gray-300 p-2 text-xs">
+                                        <span className="font-mono font-bold">EG4_USER</span>
+                                        <span className="text-gray-500 italic">Your EG4 Username</span>
+                                    </div>
+                                    <div className="flex items-center justify-between bg-white border border-gray-300 p-2 text-xs">
+                                        <span className="font-mono font-bold">EG4_PASS</span>
+                                        <span className="text-gray-500 italic">Your EG4 Password</span>
+                                    </div>
+                                    <div className="flex items-center justify-between bg-white border border-gray-300 p-2 text-xs">
+                                        <span className="font-mono font-bold">SENSECRAFT_KEY</span>
+                                        <span className="text-gray-500 italic">Your Sensecraft API Key</span>
+                                    </div>
+                                </div>
+                             </div>
+                        </div>
+
+                         {/* STEP 3 */}
+                         <div className="flex gap-4">
+                             <div className="w-8 h-8 bg-black text-white flex items-center justify-center font-bold shrink-0">3</div>
+                             <div className="flex-1">
+                                <h4 className="font-bold uppercase text-sm mb-1">Verify</h4>
+                                <p className="text-sm text-gray-600 mb-2">The script is set to run automatically every 5 minutes.</p>
+                                {repoUrl && (
+                                     <a href={getActionsLink()} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 border-2 border-black text-black px-4 py-2 text-xs font-bold uppercase hover:bg-gray-100">
+                                        Check Workflow Status <PlayCircle className="w-3 h-3" />
+                                    </a>
+                                )}
+                                <p className="text-xs text-gray-400 mt-2">If you see a green checkmark, your E-Ink display should update shortly!</p>
+                             </div>
+                        </div>
+
+                     </div>
+                </div>
+            )}
         </div>
       )}
     </div>
