@@ -1,0 +1,96 @@
+name: Test SenseCraft API
+
+on:
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      battery_soc:
+        description: 'Battery SOC value to send (0-100)'
+        required: false
+        default: '75'
+        type: string
+
+jobs:
+  test_api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Test SenseCraft API with battery_soc
+        env:
+          SENSECRAFT_KEY: ${{ secrets.SENSECRAFT_KEY }}
+          TEST_SOC_VALUE: ${{ github.event.inputs.battery_soc }}
+        run: |
+          python << 'EOF'
+          import requests
+          import os
+          import sys
+
+          SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
+          SENSECRAFT_DEVICE_ID = "20221942"
+          SENSECRAFT_KEY = os.environ.get('SENSECRAFT_KEY')
+          TEST_SOC = int(os.environ.get('TEST_SOC_VALUE', '75'))
+
+          if not SENSECRAFT_KEY:
+              print("ERROR: SENSECRAFT_KEY secret not set in repository")
+              sys.exit(1)
+
+          print("=" * 50)
+          print("SenseCraft API Test - battery_soc")
+          print("=" * 50)
+          print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
+          print(f"Sending battery_soc: {TEST_SOC}%")
+          print()
+
+          payload = {
+              "device_id": SENSECRAFT_DEVICE_ID,
+              "data": {
+                  "battery_soc": TEST_SOC
+              }
+          }
+
+          headers = {
+              "api-key": SENSECRAFT_KEY,
+              "Content-Type": "application/json"
+          }
+
+          try:
+              response = requests.post(
+                  SENSECRAFT_API_URL,
+                  json=payload,
+                  headers=headers,
+                  timeout=15
+              )
+
+              print(f"Response Status: {response.status_code}")
+              print(f"Response Body: {response.text}")
+              print()
+
+              if response.status_code == 200:
+                  print("SUCCESS! battery_soc data sent to SenseCraft!")
+                  print(f"Check your display - should show {TEST_SOC}%")
+              elif response.status_code == 401:
+                  print("FAILED: Invalid API key (401)")
+                  sys.exit(1)
+              elif response.status_code == 404:
+                  print("FAILED: Device not found (404)")
+                  sys.exit(1)
+              elif response.status_code == 500:
+                  print("FAILED: 'battery_soc' may not be defined as a Data Key in SenseCraft")
+                  sys.exit(1)
+              else:
+                  response.raise_for_status()
+
+          except Exception as e:
+              print(f"ERROR: {e}")
+              sys.exit(1)
+          EOF
