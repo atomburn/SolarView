@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { UserCredentials } from '../types';
 import { generatePythonScript, generateGithubWorkflow } from '../services/geminiService';
-import { Terminal, Cpu, Loader2, CloudUpload, Github, FileJson, FileCode, ExternalLink, Lock, PlayCircle, CheckCircle, ArrowRight, HelpCircle } from 'lucide-react';
+import { Terminal, Cpu, Loader2, CloudUpload, Github, FileJson, FileCode, ExternalLink, Lock, PlayCircle, CheckCircle, ArrowRight, HelpCircle, AlertCircle } from 'lucide-react';
 
 interface ScriptBuilderProps {
   initialCreds: UserCredentials;
@@ -261,11 +261,19 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
                         <div className="flex gap-6">
                             <div className="w-10 h-10 bg-black text-white flex items-center justify-center font-bold text-xl shrink-0 rounded-full">1</div>
                             <div className="flex-1">
-                                <h4 className="font-bold uppercase text-lg mb-2 text-black">Check Files</h4>
-                                <p className="text-base text-gray-800 mb-3">Ensure your GitHub repository has exactly these two files:</p>
-                                <ul className="text-sm font-mono bg-gray-100 p-4 border border-gray-300 space-y-2 text-black">
-                                    <li className="flex items-center gap-3"><CheckCircle className="w-5 h-5 text-green-600" /> solar_relay.py <span className="text-gray-500 italic">(The Code)</span></li>
-                                    <li className="flex items-center gap-3"><CheckCircle className="w-5 h-5 text-green-600" /> .github/workflows/solar_sync.yml <span className="text-gray-500 italic">(The Timer)</span></li>
+                                <h4 className="font-bold uppercase text-lg mb-2 text-black">Check Folder Path</h4>
+                                <p className="text-base text-gray-800 mb-3">
+                                  You do <strong>NOT</strong> need to create a new Action manually. The file you just copied does it for you, BUT it must be in the exact right folder:
+                                </p>
+                                <ul className="text-sm font-mono bg-yellow-50 p-4 border border-yellow-200 space-y-2 text-black">
+                                    <li className="flex items-center gap-3">
+                                      <div className="w-5 h-5 flex items-center justify-center bg-green-600 rounded-full text-white"><CheckCircle className="w-3 h-3" /></div>
+                                      repo/.github/workflows/solar_sync.yml
+                                    </li>
+                                    <li className="flex items-center gap-3 opacity-50">
+                                      <div className="w-5 h-5 flex items-center justify-center bg-red-600 rounded-full text-white">X</div>
+                                      repo/solar_sync.yml
+                                    </li>
                                 </ul>
                             </div>
                         </div>
@@ -275,7 +283,7 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
                              <div className="w-10 h-10 bg-black text-white flex items-center justify-center font-bold text-xl shrink-0 rounded-full">2</div>
                              <div className="flex-1">
                                 <h4 className="font-bold uppercase text-lg mb-2 text-black">Add Safe Credentials</h4>
-                                <p className="text-base text-gray-800 mb-4">GitHub needs your passwords to log in for you, but we don't put them in the code file.</p>
+                                <p className="text-base text-gray-800 mb-4">Go to <strong>Settings &rarr; Secrets and variables &rarr; Actions</strong> and add these:</p>
                                 
                                 {repoUrl ? (
                                     <a href={getSecretLink()} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 bg-black text-white px-6 py-3 text-sm font-bold uppercase hover:bg-gray-800 mb-4 shadow-md">
@@ -287,20 +295,15 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
                                     </p>
                                 )}
 
-                                <p className="text-sm text-gray-700 mb-3 italic">Click <strong>"New repository secret"</strong> for each of these:</p>
-
                                 <div className="grid grid-cols-1 gap-3">
                                     <div className="flex items-center justify-between bg-white border-2 border-gray-200 p-3 text-sm">
                                         <span className="font-mono font-bold text-lg text-black">EG4_USER</span>
-                                        <span className="text-gray-600 italic">Your EG4 Username</span>
                                     </div>
                                     <div className="flex items-center justify-between bg-white border-2 border-gray-200 p-3 text-sm">
                                         <span className="font-mono font-bold text-lg text-black">EG4_PASS</span>
-                                        <span className="text-gray-600 italic">Your EG4 Password</span>
                                     </div>
                                     <div className="flex items-center justify-between bg-white border-2 border-gray-200 p-3 text-sm">
                                         <span className="font-mono font-bold text-lg text-black">SENSECRAFT_KEY</span>
-                                        <span className="text-gray-600 italic">Your Sensecraft API Key</span>
                                     </div>
                                 </div>
                              </div>
@@ -310,14 +313,36 @@ export const ScriptBuilder: React.FC<ScriptBuilderProps> = ({ initialCreds }) =>
                          <div className="flex gap-6">
                              <div className="w-10 h-10 bg-black text-white flex items-center justify-center font-bold text-xl shrink-0 rounded-full">3</div>
                              <div className="flex-1">
-                                <h4 className="font-bold uppercase text-lg mb-2 text-black">Verify</h4>
-                                <p className="text-base text-gray-800 mb-4">The script is set to run automatically every 5 minutes.</p>
+                                <h4 className="font-bold uppercase text-lg mb-2 text-black">Verify & Run</h4>
+                                <p className="text-base text-gray-800 mb-4">
+                                  Go to the <strong>Actions</strong> tab. You don't have to wait 5 minutes!
+                                </p>
+                                
+                                <div className="bg-slate-100 p-4 border border-gray-300 mb-4">
+                                  <h5 className="font-bold text-xs uppercase mb-2 text-gray-500">How to run manually:</h5>
+                                  <ol className="list-decimal list-inside text-sm space-y-1 font-mono">
+                                    <li>Click "Deploy Web Dashboard" (or "Solar Sync") in left sidebar</li>
+                                    <li>Click the "Run workflow" dropdown button on the right</li>
+                                    <li>Click the green "Run workflow" button</li>
+                                  </ol>
+                                </div>
+
+                                <div className="mt-4">
+                                  <p className="text-sm font-bold mb-2">Look for this Green Checkmark:</p>
+                                  <div className="border border-gray-200 bg-white p-3 flex items-center gap-3 shadow-sm max-w-sm">
+                                     <CheckCircle className="w-5 h-5 text-green-600" />
+                                     <div className="flex flex-col">
+                                       <span className="font-bold text-sm">Solar Sync</span>
+                                       <span className="text-xs text-gray-500">Success</span>
+                                     </div>
+                                  </div>
+                                </div>
+
                                 {repoUrl && (
-                                     <a href={getActionsLink()} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 border-2 border-black text-black px-6 py-3 text-sm font-bold uppercase hover:bg-gray-100 shadow-sm">
-                                        Check Workflow Status <PlayCircle className="w-4 h-4" />
+                                     <a href={getActionsLink()} target="_blank" rel="noopener noreferrer" className="mt-6 inline-flex items-center gap-2 border-2 border-black text-black px-6 py-3 text-sm font-bold uppercase hover:bg-gray-100 shadow-sm">
+                                        Go to Actions Tab <ArrowRight className="w-4 h-4" />
                                     </a>
                                 )}
-                                <p className="text-sm text-gray-500 mt-3 font-italic">If you see a green checkmark, your E-Ink display should update shortly!</p>
                              </div>
                         </div>
 
