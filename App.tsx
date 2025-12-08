@@ -3,7 +3,7 @@ import { InverterData, TabView, UserCredentials } from './types';
 import { generateSystemInsight } from './services/geminiService';
 import { SolarCard } from './components/SolarCard';
 import { ScriptBuilder } from './components/ScriptBuilder';
-import { Sun, Battery, Home, Zap, RefreshCw, LayoutTemplate, Settings, Power, ExternalLink } from 'lucide-react';
+import { Sun, Battery, Home, Zap, RefreshCw, LayoutTemplate, Settings, Power, WifiOff, Info } from 'lucide-react';
 
 const MOCK_CREDENTIALS: UserCredentials = {
   username: 'AdamByrne',
@@ -14,11 +14,11 @@ const MOCK_CREDENTIALS: UserCredentials = {
 };
 
 const INITIAL_DATA: InverterData = {
-  pvWatts: 4250,
-  batteryPercent: 88,
-  batteryVoltage: 53.4,
-  batteryWatts: 1200, // Charging
-  loadWatts: 2850,
+  pvWatts: 8250, // More realistic peak for a 12000XP
+  batteryPercent: 92,
+  batteryVoltage: 54.2,
+  batteryWatts: 3500, // Charging
+  loadWatts: 4750,
   gridWatts: 0,
   gridStatus: 'Connected',
   timestamp: new Date().toLocaleTimeString()
@@ -27,9 +27,10 @@ const INITIAL_DATA: InverterData = {
 const App: React.FC = () => {
   const [data, setData] = useState<InverterData>(INITIAL_DATA);
   const [activeTab, setActiveTab] = useState<TabView>(TabView.DASHBOARD);
-  const [insight, setInsight] = useState<string>("Analyzing system data...");
+  const [insight, setInsight] = useState<string>("Initializing system connection...");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [simulationMode, setSimulationMode] = useState(true);
 
   // Simulate data fetch
   const refreshData = useCallback(async () => {
@@ -38,16 +39,17 @@ const App: React.FC = () => {
     // Simulate slight fluctuations for realism
     const newData: InverterData = {
       ...data,
-      pvWatts: Math.max(0, data.pvWatts + (Math.random() * 200 - 100)),
-      loadWatts: Math.max(500, data.loadWatts + (Math.random() * 100 - 50)),
-      batteryPercent: Math.min(100, Math.max(0, data.batteryPercent + (data.batteryWatts > 0 ? 0.1 : -0.1))),
+      pvWatts: Math.max(0, data.pvWatts + (Math.random() * 400 - 200)),
+      loadWatts: Math.max(500, data.loadWatts + (Math.random() * 200 - 100)),
+      batteryPercent: Math.min(100, Math.max(0, data.batteryPercent + (data.batteryWatts > 0 ? 0.2 : -0.1))),
       timestamp: new Date().toLocaleTimeString()
     };
     
-    // Recalculate flow
+    // Recalculate flow logic for 12000XP
+    // PV - Load = Surplus (Battery Charge)
     const surplus = newData.pvWatts - newData.loadWatts;
     newData.batteryWatts = surplus; 
-    newData.gridWatts = 0; // Assuming off-grid mode for simplicity or zero export
+    newData.gridWatts = 0; // Assuming off-grid mode mostly
 
     setTimeout(async () => {
       setData(newData);
@@ -58,7 +60,7 @@ const App: React.FC = () => {
       setInsight(text);
       
       setIsRefreshing(false);
-    }, 1500); // Artificial delay to show "Scanning" UI
+    }, 1200); 
   }, [data]);
 
   // Initial load
@@ -67,7 +69,7 @@ const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-refresh timer (5 minutes as requested, though accelerated for demo)
+  // Auto-refresh timer
   useEffect(() => {
     const timer = setInterval(refreshData, 300000); // 5 minutes
     return () => clearInterval(timer);
@@ -80,9 +82,17 @@ const App: React.FC = () => {
       <header className="mb-8 border-b-4 border-black pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4 text-black">
         <div>
           <h1 className="text-5xl font-black uppercase tracking-tighter text-black">EG4 Monitor</h1>
-          <p className="font-mono text-base mt-2 font-bold text-black">
-            UNIT: 12000XP <span className="mx-2">|</span> USER: {MOCK_CREDENTIALS.username}
-          </p>
+          <div className="flex flex-col md:flex-row md:items-center gap-2 mt-2">
+            <p className="font-mono text-base font-bold text-black">
+                UNIT: 12000XP <span className="mx-2 hidden md:inline">|</span> USER: {MOCK_CREDENTIALS.username}
+            </p>
+            {simulationMode && (
+                <div className="inline-flex items-center gap-1 bg-yellow-100 border border-yellow-500 text-yellow-800 px-2 py-0.5 text-xs font-bold uppercase rounded">
+                    <WifiOff className="w-3 h-3" />
+                    Simulation Mode
+                </div>
+            )}
+          </div>
         </div>
         <div className="text-right font-mono text-sm text-black">
             <div className="flex items-center justify-end gap-2 mb-1 font-bold">
@@ -121,15 +131,20 @@ const App: React.FC = () => {
         {activeTab === TabView.DASHBOARD ? (
           <div className="space-y-8">
             
-            {/* Help Tip */}
-            <div className="bg-yellow-50 border border-yellow-200 p-6 text-sm flex flex-col md:flex-row items-center justify-between gap-4 text-black">
-                <span className="text-base">
-                    <strong>New to this?</strong> Go to the <strong>Hardware Setup</strong> tab to generate your scripts and view the Installation Manual.
-                </span>
-                <button onClick={() => setActiveTab(TabView.SCRIPT_GEN)} className="font-bold underline uppercase text-base whitespace-nowrap text-black">
-                    Go to Setup &rarr;
-                </button>
-            </div>
+            {/* Simulation Warning */}
+            {simulationMode && (
+                <div className="bg-slate-100 border-l-4 border-black p-4 text-sm flex gap-3 items-start">
+                     <Info className="w-5 h-5 flex-shrink-0" />
+                     <div>
+                        <p className="font-bold mb-1">Why is this data simulated?</p>
+                        <p className="text-gray-700">
+                            Web browsers cannot securely connect directly to the EG4 inverter login page due to security restrictions (CORS). 
+                            To view your <strong>actual real-time data</strong>, go to the <strong>Hardware Setup</strong> tab and set up the Cloud Relay script. 
+                            This dashboard is currently showing a preview of what the interface will look like.
+                        </p>
+                     </div>
+                </div>
+            )}
             
             {/* AI Insight Banner */}
             <div className="bg-white border-2 border-black p-6 flex items-start gap-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] text-black">
