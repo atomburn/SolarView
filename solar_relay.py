@@ -9,7 +9,10 @@ print("Script Version: 3.0 (BS4 Dependency Fix)")
 # --- 0. Configuration and Environment Variables ---
 EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
 EG4_OVERVIEW_URL = "https://monitor.eg4electronics.com/WManage/web/overview/global"
-SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
+
+# SenseCraft API - correct endpoint with device_id in URL path
+SENSECRAFT_DEVICE_ID = 20222838
+SENSECRAFT_API_URL = f"https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/third_data/{SENSECRAFT_DEVICE_ID}"
 
 # Get credentials from environment variables
 EG4_USER = os.environ.get('EG4_USER')
@@ -32,9 +35,6 @@ if missing_vars:
     print(f"ERROR: Missing environment variables: {', '.join(missing_vars)}")
     print("Please set them before running the script.")
     sys.exit(1)
-
-# The device_id for Sensecraft push (from SenseCraft dashboard URL)
-SENSECRAFT_DEVICE_ID = 20222838
 
 # --- 1. Login to EG4 Electronics Monitoring Portal ---
 print("Attempting to log in to EG4 portal...")
@@ -66,65 +66,40 @@ except requests.exceptions.RequestException as e:
     print(f"ERROR: EG4 Login request failed: {e}")
     sys.exit(1)
 
-# --- 2. SANITY CHECK - Try API key in URL ---
-print("\n--- Testing SenseCraft API with API key in URL ---")
-print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
+# --- 2. SANITY CHECK - Test third_data endpoint ---
+print("\n--- Testing SenseCraft third_data API ---")
+print(f"API URL: {SENSECRAFT_API_URL}")
 print(f"API Key (first 8 chars): {SENSECRAFT_KEY[:8]}...")
 
-# Try API key in URL (as suggested by SenseCraft: "?apikey=...")
-url_with_key = f"{SENSECRAFT_API_URL}?apikey={SENSECRAFT_KEY}"
-print(f"URL with apikey: {SENSECRAFT_API_URL}?apikey=***")
+# Payload for third_data endpoint - device_id is in URL, not body
+# Just send the data directly
+test_payload = {"battery_soc": 50}
+print(f"Test payload: {test_payload}")
 
-# Simple headers without auth (since key is in URL)
-simple_headers = {"Content-Type": "application/json"}
+# Headers with api-key
+sensecraft_headers = {
+    "api-key": SENSECRAFT_KEY,
+    "Content-Type": "application/json"
+}
 
-# Also try different header combinations with URL key
-test_configs = [
-    ("apikey in URL only", url_with_key, simple_headers),
-    ("apikey in URL + api-key header", url_with_key, {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}),
-    ("base URL + api-key header", SENSECRAFT_API_URL, {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}),
-]
+print("\nSending test request...")
+try:
+    response = requests.post(SENSECRAFT_API_URL, json=test_payload, headers=sensecraft_headers, timeout=10)
+    print(f"HTTP Status: {response.status_code}")
+    print(f"Response: {response.text[:500] if response.text else '(empty)'}")
 
-payload = {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": 50}}
-print(f"Payload: {payload}")
-
-working_headers = None
-working_url = None
-success = False
-
-for desc, url, headers in test_configs:
-    print(f"\nTrying: {desc}")
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        print(f"  HTTP Status: {response.status_code}")
-        print(f"  Response: {response.text[:300] if response.text else '(empty)'}")
-
-        if response.status_code == 200:
-            try:
-                resp_json = response.json()
-                resp_code = resp_json.get('code', 0)
-                if resp_code == 0 or resp_code == 200:
-                    print(f"  SUCCESS! '{desc}' works!")
-                    working_headers = headers
-                    working_url = url
-                    success = True
-                    break
-                else:
-                    print(f"  API returned error code: {resp_code}")
-            except:
-                print("  SUCCESS (no error code in response)")
-                working_headers = headers
-                working_url = url
-                success = True
-                break
-    except Exception as e:
-        print(f"  Error: {e}")
-
-if not success:
-    print("\nWARNING: All configurations returned errors.")
-    # Default to api-key header for further attempts
-    working_headers = {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}
-    working_url = SENSECRAFT_API_URL
+    if response.status_code == 200:
+        try:
+            resp_json = response.json()
+            resp_code = resp_json.get('code', 0)
+            if resp_code == 0 or resp_code == 200:
+                print("SUCCESS! SenseCraft API is working!")
+            else:
+                print(f"API returned code: {resp_code}")
+        except:
+            print("SUCCESS! (no JSON response)")
+except Exception as e:
+    print(f"Error: {e}")
 
 print("\nSanity Check complete.")
 
@@ -224,18 +199,20 @@ print(f"Extracted Data: Solar Power: {int_solar}W, Load: {int_load}W, Battery SO
 
 # --- 4. REAL DATA PUSH ---
 print("\nPushing real data to Sensecraft API...")
+print(f"URL: {SENSECRAFT_API_URL}")
+
+# For third_data endpoint, just send the data fields directly (device_id is in URL)
 real_data_payload = {
-    "device_id": SENSECRAFT_DEVICE_ID,
-    "data": {
-        "battery_soc": int_soc,
-        "pv_power": int_solar,
-        "load_power": int_load
-    }
+    "battery_soc": int_soc,
+    "pv_power": int_solar,
+    "load_power": int_load
 }
+print(f"Payload: {real_data_payload}")
 
 try:
-    push_url = working_url if working_url else SENSECRAFT_API_URL
-    real_data_response = requests.post(push_url, json=real_data_payload, headers=working_headers, timeout=10)
+    real_data_response = requests.post(SENSECRAFT_API_URL, json=real_data_payload, headers=sensecraft_headers, timeout=10)
+    print(f"HTTP Status: {real_data_response.status_code}")
+    print(f"Response: {real_data_response.text[:500] if real_data_response.text else '(empty)'}")
     real_data_response.raise_for_status()
 
     print(f"Real Data Push successful! Status Code: {real_data_response.status_code}")
