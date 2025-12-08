@@ -66,47 +66,62 @@ except requests.exceptions.RequestException as e:
     print(f"ERROR: EG4 Login request failed: {e}")
     sys.exit(1)
 
-# --- 2. SANITY CHECK - Test push_data endpoint ---
-print("\n--- Testing SenseCraft push_data API ---")
+# --- 2. COMPREHENSIVE API TEST ---
+print("\n" + "="*60)
+print("COMPREHENSIVE SENSECRAFT API TEST")
+print("="*60)
 print(f"API URL: {SENSECRAFT_API_URL}")
 print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
-print(f"API Key (first 8 chars): {SENSECRAFT_KEY[:8]}...")
+print(f"API Key: {SENSECRAFT_KEY[:8]}...{SENSECRAFT_KEY[-4:]}")
 
-# Headers - Authorization: Bearer worked for auth in previous tests
-sensecraft_headers = {
-    "Authorization": f"Bearer {SENSECRAFT_KEY}",
-    "Content-Type": "application/json"
-}
+# All header variations to try
+header_options = [
+    ("api-key", {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+    ("X-API-KEY", {"X-API-KEY": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+    ("Authorization (plain)", {"Authorization": SENSECRAFT_KEY, "Content-Type": "application/json"}),
+    ("Authorization Bearer", {"Authorization": f"Bearer {SENSECRAFT_KEY}", "Content-Type": "application/json"}),
+]
 
-# Payload with device_id as string
-test_payload = {
-    "device_id": SENSECRAFT_DEVICE_ID,
-    "data": {
-        "battery_soc": 50
-    }
-}
-print(f"Test payload: {test_payload}")
+# Payload
+test_payload = {"device_id": SENSECRAFT_DEVICE_ID, "data": {"battery_soc": 50}}
+print(f"Payload: {test_payload}")
+print()
 
-print("\nSending test request...")
-try:
-    response = requests.post(SENSECRAFT_API_URL, json=test_payload, headers=sensecraft_headers, timeout=10)
-    print(f"HTTP Status: {response.status_code}")
-    print(f"Response: {response.text[:500] if response.text else '(empty)'}")
+best_result = None
+sensecraft_headers = None
 
-    if response.status_code == 200:
-        try:
-            resp_json = response.json()
-            resp_code = resp_json.get('code', 0)
-            if resp_code == 0 or resp_code == 200:
-                print("SUCCESS! SenseCraft API is working!")
-            else:
-                print(f"API returned error code: {resp_code} - {resp_json.get('message', 'unknown')}")
-        except:
-            print("SUCCESS! (no JSON error code)")
-except Exception as e:
-    print(f"Error: {e}")
+for header_name, headers in header_options:
+    print(f"[{header_name}]")
+    try:
+        resp = requests.post(SENSECRAFT_API_URL, json=test_payload, headers=headers, timeout=10)
+        print(f"  HTTP: {resp.status_code} | Body: {resp.text[:100] if resp.text else '(empty)'}")
 
-print("\nSanity Check complete.")
+        # Track best result (200 is better than 500)
+        if resp.status_code == 200:
+            try:
+                rj = resp.json()
+                code = rj.get('code', 0)
+                msg = rj.get('message', '')
+                print(f"  JSON code: {code}, message: {msg}")
+                if code == 0:
+                    print(f"  *** SUCCESS! ***")
+                    best_result = header_name
+                    sensecraft_headers = headers
+            except:
+                print(f"  *** SUCCESS (no error code)! ***")
+                best_result = header_name
+                sensecraft_headers = headers
+    except Exception as e:
+        print(f"  Error: {e}")
+    print()
+
+if not sensecraft_headers:
+    print("WARNING: No successful header found. Using api-key as default.")
+    sensecraft_headers = {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"}
+else:
+    print(f"Best result with: {best_result}")
+
+print("="*60)
 
 # --- 3. DATA ACQUISITION (Table Scraping) ---
 print("\nAcquiring data from EG4 overview page...")
