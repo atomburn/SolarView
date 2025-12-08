@@ -34,7 +34,8 @@ if missing_vars:
     sys.exit(1)
 
 # The device_id for Sensecraft push (reTerminal E1001 serial number)
-SENSECRAFT_DEVICE_ID = "100073581253500339"
+# Must be integer, not string per SenseCraft API docs
+SENSECRAFT_DEVICE_ID = 100073581253500339
 
 # --- 1. Login to EG4 Electronics Monitoring Portal ---
 print("Attempting to log in to EG4 portal...")
