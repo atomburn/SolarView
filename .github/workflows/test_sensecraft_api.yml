@@ -1,0 +1,107 @@
+name: Test SenseCraft API
+
+on:
+  workflow_dispatch:  # Manual trigger only
+    inputs:
+      battery_soc:
+        description: 'Battery SOC value to send (0-100)'
+        required: false
+        default: '75'
+        type: string
+
+jobs:
+  test_api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Test SenseCraft API with multiple header formats
+        env:
+          SENSECRAFT_KEY: ${{ secrets.SENSECRAFT_KEY }}
+          TEST_SOC_VALUE: ${{ github.event.inputs.battery_soc }}
+        run: |
+          python << 'EOF'
+          import requests
+          import os
+          import sys
+          import json
+
+          SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
+          SENSECRAFT_DEVICE_ID = 20222838  # From SenseCraft dashboard URL
+          SENSECRAFT_KEY = os.environ.get('SENSECRAFT_KEY')
+          TEST_SOC = int(os.environ.get('TEST_SOC_VALUE', '75'))
+
+          if not SENSECRAFT_KEY:
+              print("ERROR: SENSECRAFT_KEY secret not set in repository")
+              sys.exit(1)
+
+          print("=" * 50)
+          print("SenseCraft API Test - Trying Multiple Header Formats")
+          print("=" * 50)
+          print(f"API URL: {SENSECRAFT_API_URL}")
+          print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
+          print(f"Sending battery_soc: {TEST_SOC}")
+          print(f"API Key (first 8 chars): {SENSECRAFT_KEY[:8]}...")
+          print()
+
+          payload = {
+              "device_id": SENSECRAFT_DEVICE_ID,
+              "data": {
+                  "battery_soc": TEST_SOC
+              }
+          }
+
+          print(f"Payload: {json.dumps(payload)}")
+          print()
+
+          # Try different header formats
+          header_variations = [
+              {"api-key": SENSECRAFT_KEY, "Content-Type": "application/json"},
+              {"X-API-KEY": SENSECRAFT_KEY, "Content-Type": "application/json"},
+              {"Authorization": f"Bearer {SENSECRAFT_KEY}", "Content-Type": "application/json"},
+              {"Authorization": SENSECRAFT_KEY, "Content-Type": "application/json"},
+          ]
+
+          for i, headers in enumerate(header_variations):
+              header_type = list(headers.keys())[0]
+              print(f"--- Attempt {i+1}: Using '{header_type}' header ---")
+
+              try:
+                  response = requests.post(
+                      SENSECRAFT_API_URL,
+                      json=payload,
+                      headers=headers,
+                      timeout=15
+                  )
+
+                  print(f"Status: {response.status_code}")
+                  print(f"Response: {response.text[:500] if response.text else '(empty)'}")
+
+                  if response.status_code == 200:
+                      print()
+                      print("=" * 50)
+                      print(f"SUCCESS with '{header_type}' header!")
+                      print(f"Check your display - battery_soc should show {TEST_SOC}%")
+                      print("=" * 50)
+                      sys.exit(0)
+
+                  print()
+
+              except Exception as e:
+                  print(f"Error: {e}")
+                  print()
+
+          print("All header formats failed.")
+          print("Check: 1) API key is correct  2) Device ID is correct  3) battery_soc is configured in SenseCraft")
+          sys.exit(1)
+          EOF

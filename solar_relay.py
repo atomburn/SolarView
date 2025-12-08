@@ -2,22 +2,20 @@ import requests
 import os
 from bs4 import BeautifulSoup
 import sys
+import json
+from datetime import datetime, timezone
 
 # --- Script Version ---
-print("Script Version: 3.0 (BS4 Dependency Fix)")
+print("Script Version: 4.0 (JSON File Output for SenseCraft Pull)")
 
 # --- 0. Configuration and Environment Variables ---
 EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
 EG4_OVERVIEW_URL = "https://monitor.eg4electronics.com/WManage/web/overview/global"
-SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
 
 # Get credentials from environment variables
 EG4_USER = os.environ.get('EG4_USER')
 EG4_PASS = os.environ.get('EG4_PASS')
-# EG4_STATION_ID is used to find the specific device row on the EG4 portal.
-# If not provided, the script will attempt to find the first "Normal" or "Offline" device.
 EG4_STATION_ID = os.environ.get('EG4_STATION_ID')
-SENSECRAFT_KEY = os.environ.get('SENSECRAFT_KEY')
 
 # Check for required environment variables
 missing_vars = []
@@ -25,16 +23,11 @@ if not EG4_USER:
     missing_vars.append('EG4_USER')
 if not EG4_PASS:
     missing_vars.append('EG4_PASS')
-if not SENSECRAFT_KEY:
-    missing_vars.append('SENSECRAFT_KEY')
 
 if missing_vars:
     print(f"ERROR: Missing environment variables: {', '.join(missing_vars)}")
     print("Please set them before running the script.")
     sys.exit(1)
-
-# The device_id for Sensecraft push is explicitly defined in the prompt.
-SENSECRAFT_DEVICE_ID = "20221942"
 
 # --- 1. Login to EG4 Electronics Monitoring Portal ---
 print("Attempting to log in to EG4 portal...")
@@ -51,47 +44,19 @@ login_headers = {
 
 try:
     login_response = session.post(EG4_LOGIN_URL, data=login_data, headers=login_headers, timeout=10)
-    login_response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+    login_response.raise_for_status()
 
-    # A successful login usually redirects or returns a specific page.
-    # Check if we were redirected to the overview page or similar success indicator.
-    # If the login fails, it often returns the login page itself with a 200 status.
     if "login" in login_response.url and "login" in login_response.text.lower():
         print("ERROR: EG4 Login failed. Check username and password.")
         sys.exit(1)
-    
+
     print("Successfully logged in to EG4 portal.")
 
 except requests.exceptions.RequestException as e:
     print(f"ERROR: EG4 Login request failed: {e}")
     sys.exit(1)
 
-# --- 2. SANITY CHECK (Version 3.0 - Dependency Fix) ---
-print("\nSending Sanity Check (battery_soc only)...")
-sanity_check_payload = {
-    "device_id": SENSECRAFT_DEVICE_ID,
-    "data": {
-        "battery_soc": 50
-    }
-}
-sensecraft_headers = {
-    "api-key": SENSECRAFT_KEY,
-    "Content-Type": "application/json"
-}
-
-try:
-    sanity_response = requests.post(SENSECRAFT_API_URL, json=sanity_check_payload, headers=sensecraft_headers, timeout=10)
-    sanity_response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
-
-    print("Sanity Check Passed.")
-except requests.exceptions.RequestException as e:
-    if hasattr(e, 'response') and e.response is not None:
-        print(f"ERROR: Sanity Check failed. Status Code: {e.response.status_code}. Response: {e.response.text}")
-    else:
-        print(f"ERROR: Sanity Check failed: {e}")
-    sys.exit(1)
-
-# --- 3. DATA ACQUISITION (Table Scraping) ---
+# --- 2. DATA ACQUISITION (Table Scraping) ---
 print("\nAcquiring data from EG4 overview page...")
 int_solar = 0
 int_load = 0
@@ -102,21 +67,17 @@ try:
     overview_response.raise_for_status()
     soup = BeautifulSoup(overview_response.text, 'html.parser')
 
-    # Find the table containing the device data. Assume it's the main data table.
-    # Common classes/IDs for such tables are 'table', 'gridTable', 'dataTable', etc.
-    # We try a few common ones.
-    table = soup.find('table', class_='table') 
+    table = soup.find('table', class_='table')
     if not table:
         table = soup.find('table', id='gridTable')
-    if not table: # Fallback to finding any table if specific classes/ids not found
-        table = soup.find('table') 
+    if not table:
+        table = soup.find('table')
 
     if not table:
         print("WARNING: Could not find any data table on the EG4 overview page. Defaulting to 0 values.")
     else:
-        # Assuming the data rows are within a tbody
         tbody = table.find('tbody')
-        rows = tbody.find_all('tr') if tbody else table.find_all('tr')[1:] # Skip header row if no tbody
+        rows = tbody.find_all('tr') if tbody else table.find_all('tr')[1:]
 
         target_row = None
 
@@ -129,14 +90,11 @@ try:
                     break
             if not target_row:
                 print(f"WARNING: Device ID '{EG4_STATION_ID}' not found in the table.")
-        
-        # If no specific STATION_ID was provided, or if it wasn't found,
-        # try to find the first device marked "Normal" or "Offline".
+
         if not target_row:
             print("Searching for the first 'Normal' or 'Offline' device status.")
             for row in rows:
                 cols = row.find_all('td')
-                # Check text content of all columns in the row for status indicators
                 row_text_content = ' '.join(td.text.strip() for td in cols)
                 if "Normal" in row_text_content or "Offline" in row_text_content:
                     target_row = row
@@ -144,39 +102,34 @@ try:
                         detected_device_id = cols[0].text.strip()
                         print(f"Detected and using device: {detected_device_id} (Status: {'Normal' if 'Normal' in row_text_content else 'Offline'})")
                     break
-        
+
         if target_row:
             cols = target_row.find_all('td')
-            # Ensure there are enough columns before accessing specific indices
-            # Indices: SolarPower (2), Load (5), SOC (6) - this means we need at least 7 columns (0-6)
-            if len(cols) > 6: 
+            if len(cols) > 6:
                 try:
-                    # Column Index 2 (SolarPower)
                     solar_power_str = cols[2].text.strip().replace(' W', '')
-                    int_solar = int(float(solar_power_str)) # Use float first to handle potential decimals
+                    int_solar = int(float(solar_power_str))
                 except (ValueError, IndexError):
-                    print(f"WARNING: Could not parse SolarPower from '{cols[2].text.strip() if len(cols)>2 else 'N/A'}'. Defaulting to 0.")
+                    print(f"WARNING: Could not parse SolarPower. Defaulting to 0.")
                     int_solar = 0
 
                 try:
-                    # Column Index 5 (Load)
                     load_str = cols[5].text.strip().replace(' W', '')
                     int_load = int(float(load_str))
                 except (ValueError, IndexError):
-                    print(f"WARNING: Could not parse Load from '{cols[5].text.strip() if len(cols)>5 else 'N/A'}'. Defaulting to 0.")
+                    print(f"WARNING: Could not parse Load. Defaulting to 0.")
                     int_load = 0
 
                 try:
-                    # Column Index 6 (SOC)
                     soc_str = cols[6].text.strip().replace(' %', '')
                     int_soc = int(float(soc_str))
                 except (ValueError, IndexError):
-                    print(f"WARNING: Could not parse SOC from '{cols[6].text.strip() if len(cols)>6 else 'N/A'}'. Defaulting to 0.")
+                    print(f"WARNING: Could not parse SOC. Defaulting to 0.")
                     int_soc = 0
             else:
-                print(f"WARNING: Target row found but not enough columns ({len(cols)}) to extract all data. Expected at least 7 for indices 2, 5, 6. Defaulting to 0 values.")
+                print(f"WARNING: Not enough columns. Defaulting to 0 values.")
         else:
-            print("WARNING: No target device row found based on STATION_ID or 'Normal'/'Offline' status. Defaulting to 0 values.")
+            print("WARNING: No target device row found. Defaulting to 0 values.")
 
 except requests.exceptions.RequestException as e:
     print(f"ERROR: Failed to retrieve EG4 overview page: {e}. Defaulting to 0 values.")
@@ -185,33 +138,24 @@ except Exception as e:
 
 print(f"Extracted Data: Solar Power: {int_solar}W, Load: {int_load}W, Battery SOC: {int_soc}%")
 
-# --- 4. REAL DATA PUSH ---
-print("\nPushing real data to Sensecraft API...")
-real_data_payload = {
-    "device_id": SENSECRAFT_DEVICE_ID,
-    "data": {
-        "battery_soc": int_soc,
-        "pv_power": int_solar,
-        "load_power": int_load
-    }
+# --- 3. WRITE TO data.json ---
+print("\nWriting data to data.json...")
+
+data = {
+    "battery_soc": int_soc,
+    "pv_power": int_solar,
+    "load_power": int_load,
+    "last_updated": datetime.now(timezone.utc).isoformat()
 }
 
 try:
-    real_data_response = requests.post(SENSECRAFT_API_URL, json=real_data_payload, headers=sensecraft_headers, timeout=10)
-    real_data_response.raise_for_status()
-
-    print(f"Real Data Push successful! Status Code: {real_data_response.status_code}")
-except requests.exceptions.HTTPError as e:
-    if e.response is not None and e.response.status_code == 500:
-        print("Real Data Push failed. Ensure 'pv_power' and 'load_power' are also defined as Data Keys in your Sensecraft Dashboard.")
-        print(f"Full 500 Error Response: {e.response.text}")
-    else:
-        print(f"ERROR: Real Data Push failed with HTTP error: {e}")
-        if e.response is not None:
-            print(f"Response: {e.response.status_code} - {e.response.text}")
-    sys.exit(1)
-except requests.exceptions.RequestException as e:
-    print(f"ERROR: Real Data Push request failed: {e}")
+    with open('data.json', 'w') as f:
+        json.dump(data, f, indent=2)
+    print(f"Successfully wrote data.json:")
+    print(json.dumps(data, indent=2))
+except Exception as e:
+    print(f"ERROR: Failed to write data.json: {e}")
     sys.exit(1)
 
-print("\nScript finished successfully.")
+print("\nScript finished successfully!")
+print("SenseCraft will pull data from: https://github.com/atomburn/SolarView/raw/main/data.json")
