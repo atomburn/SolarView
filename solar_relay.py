@@ -10,9 +10,9 @@ print("Script Version: 3.0 (BS4 Dependency Fix)")
 EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
 EG4_OVERVIEW_URL = "https://monitor.eg4electronics.com/WManage/web/overview/global"
 
-# SenseCraft API - correct endpoint with device_id in URL path
-SENSECRAFT_DEVICE_ID = 20222838
-SENSECRAFT_API_URL = f"https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/third_data/{SENSECRAFT_DEVICE_ID}"
+# SenseCraft API configuration
+SENSECRAFT_DEVICE_ID = "20222838"  # String format
+SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
 
 # Get credentials from environment variables
 EG4_USER = os.environ.get('EG4_USER')
@@ -66,21 +66,26 @@ except requests.exceptions.RequestException as e:
     print(f"ERROR: EG4 Login request failed: {e}")
     sys.exit(1)
 
-# --- 2. SANITY CHECK - Test third_data endpoint ---
-print("\n--- Testing SenseCraft third_data API ---")
+# --- 2. SANITY CHECK - Test push_data endpoint ---
+print("\n--- Testing SenseCraft push_data API ---")
 print(f"API URL: {SENSECRAFT_API_URL}")
+print(f"Device ID: {SENSECRAFT_DEVICE_ID}")
 print(f"API Key (first 8 chars): {SENSECRAFT_KEY[:8]}...")
 
-# Payload for third_data endpoint - device_id is in URL, not body
-# Just send the data directly
-test_payload = {"battery_soc": 50}
-print(f"Test payload: {test_payload}")
-
-# Headers with api-key
+# Headers - Authorization: Bearer worked for auth in previous tests
 sensecraft_headers = {
-    "api-key": SENSECRAFT_KEY,
+    "Authorization": f"Bearer {SENSECRAFT_KEY}",
     "Content-Type": "application/json"
 }
+
+# Payload with device_id as string
+test_payload = {
+    "device_id": SENSECRAFT_DEVICE_ID,
+    "data": {
+        "battery_soc": 50
+    }
+}
+print(f"Test payload: {test_payload}")
 
 print("\nSending test request...")
 try:
@@ -95,9 +100,9 @@ try:
             if resp_code == 0 or resp_code == 200:
                 print("SUCCESS! SenseCraft API is working!")
             else:
-                print(f"API returned code: {resp_code}")
+                print(f"API returned error code: {resp_code} - {resp_json.get('message', 'unknown')}")
         except:
-            print("SUCCESS! (no JSON response)")
+            print("SUCCESS! (no JSON error code)")
 except Exception as e:
     print(f"Error: {e}")
 
@@ -201,11 +206,14 @@ print(f"Extracted Data: Solar Power: {int_solar}W, Load: {int_load}W, Battery SO
 print("\nPushing real data to Sensecraft API...")
 print(f"URL: {SENSECRAFT_API_URL}")
 
-# For third_data endpoint, just send the data fields directly (device_id is in URL)
+# Payload with device_id and data
 real_data_payload = {
-    "battery_soc": int_soc,
-    "pv_power": int_solar,
-    "load_power": int_load
+    "device_id": SENSECRAFT_DEVICE_ID,
+    "data": {
+        "battery_soc": int_soc,
+        "pv_power": int_solar,
+        "load_power": int_load
+    }
 }
 print(f"Payload: {real_data_payload}")
 
