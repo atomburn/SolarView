@@ -11,7 +11,7 @@ EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
 EG4_OVERVIEW_URL = "https://monitor.eg4electronics.com/WManage/web/overview/global"
 
 # SenseCraft API configuration
-SENSECRAFT_DEVICE_ID = "20222838"  # String format
+SENSECRAFT_DEVICE_ID = 20222838  # Integer format (Authorization: Bearer worked with this)
 SENSECRAFT_API_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
 
 # Get credentials from environment variables
