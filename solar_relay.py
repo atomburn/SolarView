@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 
 # --- Script Version ---
-print("Script Version: 4.4 (Station-Specific API Calls)")
+print("Script Version: 4.5 (Auto-discover Station ID)")
 
 # --- 0. Configuration ---
 EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
@@ -14,16 +14,16 @@ EG4_BASE_URL = "https://monitor.eg4electronics.com/WManage"
 
 EG4_USER = os.environ.get('EG4_USER')
 EG4_PASS = os.environ.get('EG4_PASS')
-EG4_STATION_ID = os.environ.get('EG4_STATION_ID')
+EG4_STATION_ID = os.environ.get('EG4_STATION_ID')  # Can be numeric ID or serial number
 
 if not EG4_USER or not EG4_PASS:
     print("ERROR: Missing EG4_USER or EG4_PASS")
     sys.exit(1)
 
-print(f"Station ID: {EG4_STATION_ID if EG4_STATION_ID else 'NOT SET'}")
+print(f"Configured Station ID/Serial: {EG4_STATION_ID if EG4_STATION_ID else 'NOT SET (will auto-discover)'}")
 
 # --- 1. Login ---
-print("Logging in to EG4 portal...")
+print("\nLogging in to EG4 portal...")
 session = requests.Session()
 
 try:
@@ -39,72 +39,107 @@ except Exception as e:
     print(f"Login failed: {e}")
     sys.exit(1)
 
-# --- 2. Try Various API Endpoints ---
-print("\nTrying various EG4 API endpoints...")
+# --- 2. Get Plant List (to find station ID and data) ---
+print("\n" + "="*50)
+print("STEP 1: Getting plant list...")
+print("="*50)
 
 int_solar = 0
 int_load = 0
 int_soc = 0
+numeric_station_id = None
 
-# First, get plant list to find station ID if not provided
-print("\n--- Getting plant list ---")
 plant_list_url = EG4_BASE_URL + "/web/overview/plant/list"
-try:
-    # Try POST with pagination params (common in EasyGrid/WManage systems)
-    resp = session.post(plant_list_url, data={'page': 1, 'rows': 50}, timeout=10)
-    print(f"POST {plant_list_url}")
-    print(f"  Status: {resp.status_code}")
-    print(f"  Response: {resp.text[:500]}")
 
-    if resp.status_code == 200:
-        data = resp.json()
-        if 'rows' in data and data['rows']:
-            plant = data['rows'][0]
-            print(f"\n  Plant info: {json.dumps(plant, indent=2)[:800]}")
+# Try POST first (common in WManage), then GET
+for method in ["POST", "GET"]:
+    try:
+        print(f"\n{method} {plant_list_url}")
+        if method == "POST":
+            resp = session.post(plant_list_url, data={'page': 1, 'rows': 50}, timeout=10)
+        else:
+            resp = session.get(plant_list_url, timeout=10)
 
-            # Extract station ID from plant data
-            found_station_id = plant.get('stationId') or plant.get('id') or plant.get('plantId')
-            if found_station_id:
-                print(f"\n  Found Station ID: {found_station_id}")
-                if not EG4_STATION_ID:
-                    EG4_STATION_ID = str(found_station_id)
+        print(f"  Status: {resp.status_code}")
 
-            # Try to extract power values from plant overview
-            int_solar = int(float(plant.get('solarPower', plant.get('pac', 0)) or 0))
-            int_load = int(float(plant.get('load', plant.get('loadPower', 0)) or 0))
-            int_soc = int(float(plant.get('soc', plant.get('batterySoc', 0)) or 0))
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                print(f"  Response keys: {list(data.keys()) if isinstance(data, dict) else 'array'}")
 
-            if int_solar > 0 or int_soc > 0:
-                print(f"  *** FOUND DATA in plant list: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
+                if isinstance(data, dict) and 'rows' in data and data['rows']:
+                    print(f"  Found {len(data['rows'])} plant(s)")
 
-except Exception as e:
-    print(f"  Error: {e}")
+                    # Print ALL plant info for debugging
+                    for i, plant in enumerate(data['rows']):
+                        print(f"\n  --- Plant {i+1} ---")
+                        print(f"  Full data: {json.dumps(plant, indent=4)}")
 
-# If we have a station ID, try station-specific endpoints
-if EG4_STATION_ID and (int_solar == 0 and int_soc == 0):
-    print(f"\n--- Trying station-specific endpoints for ID: {EG4_STATION_ID} ---")
+                        # Extract the numeric station ID
+                        plant_id = plant.get('id') or plant.get('stationId') or plant.get('plantId')
+                        plant_sn = plant.get('sn') or plant.get('serialNumber') or plant.get('inverterSn')
+                        plant_name = plant.get('name') or plant.get('stationName') or plant.get('plantName')
 
-    station_endpoints = [
-        (f"/web/overview/energy/day?id={EG4_STATION_ID}", "GET"),
-        (f"/web/overview/device/list?id={EG4_STATION_ID}", "GET"),
-        (f"/web/monitor/inverter/list", "POST", {'stationId': EG4_STATION_ID, 'page': 1, 'rows': 50}),
-        (f"/web/overview/plant/energy/day?stationId={EG4_STATION_ID}", "GET"),
-        (f"/api/station/detail?id={EG4_STATION_ID}", "GET"),
-        (f"/web/overview/battery/list?stationId={EG4_STATION_ID}", "GET"),
+                        print(f"\n  Extracted: ID={plant_id}, SN={plant_sn}, Name={plant_name}")
+
+                        # Use first plant's ID if we don't have one
+                        if plant_id and not numeric_station_id:
+                            numeric_station_id = str(plant_id)
+                            print(f"  >>> Using Station ID: {numeric_station_id}")
+
+                        # Try to get power values directly from plant list
+                        solar = plant.get('solarPower') or plant.get('pac') or plant.get('pvPower') or plant.get('power') or 0
+                        load = plant.get('load') or plant.get('loadPower') or plant.get('pload') or 0
+                        soc = plant.get('soc') or plant.get('batterySoc') or plant.get('capacity') or 0
+
+                        # Handle string values
+                        try:
+                            int_solar = int(float(solar)) if solar else 0
+                            int_load = int(float(load)) if load else 0
+                            int_soc = int(float(soc)) if soc else 0
+                        except (ValueError, TypeError):
+                            pass
+
+                        if int_solar > 0 or int_soc > 0:
+                            print(f"  >>> FOUND DATA: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
+
+                    if int_solar > 0 or int_soc > 0:
+                        break  # Got data, stop trying methods
+
+            except json.JSONDecodeError:
+                print(f"  Response (not JSON): {resp.text[:300]}")
+
+    except Exception as e:
+        print(f"  Error: {e}")
+
+# --- 3. Try inverter list endpoint (often has real-time data) ---
+if int_solar == 0 and int_soc == 0:
+    print("\n" + "="*50)
+    print("STEP 2: Getting inverter list...")
+    print("="*50)
+
+    station_id_to_use = numeric_station_id or EG4_STATION_ID
+
+    inverter_endpoints = [
+        ("/web/monitor/inverter/list", "POST", {'page': 1, 'rows': 50}),
+        ("/web/overview/inverter/list", "POST", {'page': 1, 'rows': 50}),
+        (f"/web/overview/device/list?stationId={station_id_to_use}", "GET", None) if station_id_to_use else None,
+        (f"/web/monitor/inverter/list?stationId={station_id_to_use}", "GET", None) if station_id_to_use else None,
     ]
 
-    for endpoint_info in station_endpoints:
-        if len(endpoint_info) == 2:
-            endpoint, method = endpoint_info
-            post_data = None
-        else:
-            endpoint, method, post_data = endpoint_info
+    for endpoint_info in inverter_endpoints:
+        if not endpoint_info:
+            continue
 
+        endpoint, method, post_data = endpoint_info
         url = EG4_BASE_URL + endpoint
-        print(f"\n{method} {url}")
 
         try:
-            if method == "POST":
+            print(f"\n{method} {url}")
+            if method == "POST" and post_data:
+                # Add station ID to POST data if we have it
+                if station_id_to_use:
+                    post_data['stationId'] = station_id_to_use
                 resp = session.post(url, data=post_data, timeout=10)
             else:
                 resp = session.get(url, timeout=10)
@@ -112,87 +147,107 @@ if EG4_STATION_ID and (int_solar == 0 and int_soc == 0):
             print(f"  Status: {resp.status_code}")
 
             if resp.status_code == 200:
-                content = resp.text[:800]
-                print(f"  Response: {content}")
-
                 try:
                     data = resp.json()
+                    print(f"  Response: {json.dumps(data, indent=2)[:1000]}")
 
-                    # Check for 'rows' array (inverter/device list)
-                    if isinstance(data, dict) and 'rows' in data and data['rows']:
-                        row = data['rows'][0]
-                        print(f"  First row keys: {list(row.keys())}")
+                    # Check for rows array
+                    rows = data.get('rows', []) if isinstance(data, dict) else []
+                    if rows:
+                        inverter = rows[0]
+                        print(f"\n  Inverter keys: {list(inverter.keys())}")
 
-                        # Common field names for power values
-                        solar = row.get('solarPower') or row.get('pac') or row.get('pvPower') or row.get('ppv') or 0
-                        load = row.get('load') or row.get('loadPower') or row.get('pload') or 0
-                        soc = row.get('soc') or row.get('batterySoc') or row.get('capacity') or 0
+                        solar = inverter.get('solarPower') or inverter.get('pac') or inverter.get('ppv') or inverter.get('pvPower') or 0
+                        load = inverter.get('load') or inverter.get('loadPower') or inverter.get('pload') or 0
+                        soc = inverter.get('soc') or inverter.get('batterySoc') or inverter.get('capacity') or 0
 
-                        int_solar = int(float(solar))
-                        int_load = int(float(load))
-                        int_soc = int(float(soc))
+                        try:
+                            int_solar = int(float(solar)) if solar else 0
+                            int_load = int(float(load)) if load else 0
+                            int_soc = int(float(soc)) if soc else 0
+                        except (ValueError, TypeError):
+                            pass
 
                         if int_solar > 0 or int_soc > 0:
-                            print(f"  *** FOUND DATA: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
+                            print(f"  >>> FOUND DATA: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
                             break
 
-                    # Check for direct 'data' object
-                    elif isinstance(data, dict) and 'data' in data:
-                        subdata = data['data']
-                        print(f"  Data keys: {list(subdata.keys()) if isinstance(subdata, dict) else 'array'}")
-
-                        if isinstance(subdata, dict):
-                            solar = subdata.get('solarPower') or subdata.get('pac') or 0
-                            load = subdata.get('load') or subdata.get('loadPower') or 0
-                            soc = subdata.get('soc') or subdata.get('batterySoc') or 0
-
-                            int_solar = int(float(solar))
-                            int_load = int(float(load))
-                            int_soc = int(float(soc))
-
-                            if int_solar > 0 or int_soc > 0:
-                                print(f"  *** FOUND DATA: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
-                                break
-
                 except json.JSONDecodeError:
-                    print("  Not JSON")
+                    print(f"  Not JSON: {resp.text[:200]}")
 
         except Exception as e:
             print(f"  Error: {e}")
 
-# --- 3. If still no data, search the overview page for embedded JSON/AJAX URLs ---
+# --- 4. Try real-time data endpoint ---
 if int_solar == 0 and int_soc == 0:
-    print("\n\n--- Fetching overview page to find embedded data ---")
+    print("\n" + "="*50)
+    print("STEP 3: Trying real-time data endpoints...")
+    print("="*50)
 
-    overview_response = session.get(EG4_BASE_URL + "/web/overview/global", timeout=15)
-    page_text = overview_response.text
+    station_id_to_use = numeric_station_id or EG4_STATION_ID
 
-    # Look for datagrid/AJAX URLs in JavaScript
-    url_pattern = r"url\s*:\s*['\"]([^'\"]+)['\"]"
-    matches = re.findall(url_pattern, page_text)
+    if station_id_to_use:
+        realtime_endpoints = [
+            f"/web/overview/energy/day?id={station_id_to_use}",
+            f"/web/overview/plant/detail?id={station_id_to_use}",
+            f"/api/station/overview?id={station_id_to_use}",
+            f"/web/overview/battery/list?stationId={station_id_to_use}",
+        ]
 
-    print(f"Found {len(matches)} potential URLs in page:")
-    for url in matches[:15]:
-        print(f"  - {url}")
+        for endpoint in realtime_endpoints:
+            url = EG4_BASE_URL + endpoint
+            try:
+                print(f"\nGET {url}")
+                resp = session.get(url, timeout=10)
+                print(f"  Status: {resp.status_code}")
 
-    # Also look for embedded JSON data
-    json_pattern = r'"solarPower"\s*:\s*(\d+)'
-    solar_matches = re.findall(json_pattern, page_text)
-    if solar_matches:
-        print(f"\nFound solarPower values in page: {solar_matches}")
-        int_solar = int(solar_matches[0])
+                if resp.status_code == 200:
+                    print(f"  Response: {resp.text[:800]}")
 
-    soc_pattern = r'"soc"\s*:\s*(\d+)'
-    soc_matches = re.findall(soc_pattern, page_text)
-    if soc_matches:
-        print(f"Found soc values in page: {soc_matches}")
-        int_soc = int(soc_matches[0])
+                    try:
+                        data = resp.json()
 
-print(f"\n\n{'='*50}")
-print(f"Final Extracted: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
-print(f"{'='*50}")
+                        # Look for power data in various structures
+                        if isinstance(data, dict):
+                            # Direct fields
+                            solar = data.get('solarPower') or data.get('pac') or 0
+                            load = data.get('load') or data.get('loadPower') or 0
+                            soc = data.get('soc') or data.get('batterySoc') or 0
 
-# --- 4. Write data.json ---
+                            # Nested in 'data' key
+                            if 'data' in data and isinstance(data['data'], dict):
+                                subdata = data['data']
+                                solar = solar or subdata.get('solarPower') or subdata.get('pac') or 0
+                                load = load or subdata.get('load') or subdata.get('loadPower') or 0
+                                soc = soc or subdata.get('soc') or subdata.get('batterySoc') or 0
+
+                            try:
+                                int_solar = int(float(solar)) if solar else 0
+                                int_load = int(float(load)) if load else 0
+                                int_soc = int(float(soc)) if soc else 0
+                            except (ValueError, TypeError):
+                                pass
+
+                            if int_solar > 0 or int_soc > 0:
+                                print(f"  >>> FOUND DATA: Solar={int_solar}W, Load={int_load}W, SOC={int_soc}%")
+                                break
+
+                    except json.JSONDecodeError:
+                        pass
+
+            except Exception as e:
+                print(f"  Error: {e}")
+
+# --- 5. Final Summary ---
+print("\n" + "="*50)
+print("FINAL RESULTS")
+print("="*50)
+print(f"Station ID used: {numeric_station_id or EG4_STATION_ID or 'None found'}")
+print(f"Solar Power: {int_solar}W")
+print(f"Load Power: {int_load}W")
+print(f"Battery SOC: {int_soc}%")
+
+# --- 6. Write data.json ---
 data = {
     "battery_soc": int_soc,
     "pv_power": int_solar,
