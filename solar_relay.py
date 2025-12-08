@@ -1,211 +1,207 @@
-import os
 import requests
+import os
 import json
 import sys
 import time
 
+SCRIPT_VERSION = "2.1 (Login Fix)"
+
 # --- Configuration ---
 # EG4 Portal URLs
-# These are best-guess paths based on typical SPA backend APIs.
-# You might need to adjust them by inspecting network traffic in your browser
-# when interacting with the EG4 portal.
-EG4_BASE_URL = "https://monitor.eg4electronics.com/WManage/web/"
-EG4_LOGIN_ENDPOINT = "user/login"
-EG4_PLANT_LIST_ENDPOINT = "plant/plantList"
-EG4_PLANT_REALTIME_DATA_ENDPOINT = "plant/plantRealTimeData"
+EG4_LOGIN_URL = "https://monitor.eg4electronics.com/WManage/web/login"
+EG4_GET_PLANT_LIST_URL = "https://monitor.eg4electronics.com/WManage/web/plant/getPlantList"
+EG4_GET_REALTIME_DATA_URL = "https://monitor.eg4electronics.com/WManage/web/plant/getRealtimeData"
 
-# Sensecraft API
-SENSECRAFT_PUSH_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
-# As per the prompt's example, 'device_id' is hardcoded in the body.
-SENSECRAFT_DEVICE_ID = 20221942 
+# Sensecraft API URL
+SENSECRAFT_PUSH_DATA_URL = "https://sensecraft-hmi-api.seeed.cc/api/v1/user/device/push_data"
 
-# --- Environment Variable Loading ---
-# Load sensitive information from environment variables
-EG4_USER = os.environ.get('EG4_USER')
-EG4_PASS = os.environ.get('EG4_PASS')
-EG4_STATION_ID = os.environ.get('EG4_STATION_ID') # Optional: will auto-detect if not provided
-SENSECRAFT_KEY = os.environ.get('SENSECRAFT_KEY')
+# Sensecraft Device ID (as provided in the example body structure)
+SENSECRAFT_DEVICE_ID = 20221942
 
-# --- Main Script ---
+def log_message(level, message):
+    """Prints a formatted log message."""
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [{level.upper()}] {message}")
+
+def get_env_variable(name, required=True, sensitive=False):
+    """Fetches an environment variable, checks for existence, and optionally masks output."""
+    value = os.environ.get(name)
+    if required and not value:
+        log_message("ERROR", f"Missing required environment variable: {name}")
+        sys.exit(1)
+    if value and not sensitive:
+        log_message("INFO", f"Loaded environment variable: {name}")
+    elif value and sensitive:
+        log_message("INFO", f"Loaded sensitive environment variable: {name} (masked)")
+    return value
 
 def main():
-    print("--- EG4 Data Bridge Script Started ---")
+    log_message("INFO", f"Script Version: {SCRIPT_VERSION}")
+    log_message("INFO", "Starting EG4 to Sensecraft Data Bridge...")
 
-    # 1. Validate Environment Variables
-    missing_env_vars = []
-    if not EG4_USER:
-        missing_env_vars.append('EG4_USER')
-    if not EG4_PASS:
-        missing_env_vars.append('EG4_PASS')
-    if not SENSECRAFT_KEY:
-        missing_env_vars.append('SENSECRAFT_KEY')
-
-    if missing_env_vars:
-        print(f"ERROR: The following required environment variables are not set: {', '.join(missing_env_vars)}")
-        sys.exit(1)
-
-    # Convert EG4_STATION_ID to int if it exists, otherwise keep as None
-    eg4_station_id_int = None
-    if EG4_STATION_ID:
-        try:
-            eg4_station_id_int = int(EG4_STATION_ID)
-        except ValueError:
-            print(f"ERROR: EG4_STATION_ID must be an integer if provided. Got: '{EG4_STATION_ID}'")
-            sys.exit(1)
+    # --- 1. Load Environment Variables ---
+    eg4_user = get_env_variable('EG4_USER', required=True, sensitive=False)
+    eg4_pass = get_env_variable('EG4_PASS', required=True, sensitive=True)
+    eg4_station_id = get_env_variable('EG4_STATION_ID', required=False, sensitive=False)
+    sensecraft_key = get_env_variable('SENSECRAFT_KEY', required=True, sensitive=True)
 
     session = requests.Session()
-    eg4_auth_token = None
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'X-Requested-With': 'XMLHttpRequest', # Often required by these portals for AJAX calls
+        'Referer': 'https://monitor.eg4electronics.com/WManage/web/login', # Mimic browser
+        'Origin': 'https://monitor.eg4electronics.com',
+    })
+
+    # --- 2. EG4 Portal Login ---
+    log_message("INFO", f"Attempting to log in to EG4 portal: {EG4_LOGIN_URL}")
+    login_payload = {
+        'account': eg4_user,
+        'password': eg4_pass,
+        'isRem': 'false',
+        'lang': 'en_US'
+    }
 
     try:
-        # 2. Login to EG4 Portal
-        print("Attempting to log in to EG4 portal...")
-        login_url = f"{EG4_BASE_URL}{EG4_LOGIN_ENDPOINT}"
-        login_payload = json.dumps({
-            "userName": EG4_USER,
-            "passWord": EG4_PASS
-        })
-        
-        # EG4 login typically uses Content-Type: application/json
-        headers_eg4_login = {'Content-Type': 'application/json'}
-
-        login_response = session.post(login_url, data=login_payload, headers=headers_eg4_login, timeout=15)
+        # First, a GET request to the login page might be needed to get initial cookies/CSRF tokens if any.
+        # For simple POST logins, this might be skipped, but it's safer to attempt.
+        # The portal typically handles session cookies automatically if allow_redirects=True.
+        # Let's try direct POST first based on common patterns.
+        login_response = session.post(EG4_LOGIN_URL, data=login_payload, allow_redirects=True, timeout=10)
         login_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+        # Assuming the login endpoint returns JSON
         login_data = login_response.json()
 
-        if login_data.get('code') == 0 and login_data.get('msg') == 'success':
-            eg4_auth_token = login_data.get('obj', {}).get('token')
-            if not eg4_auth_token:
-                raise ValueError("EG4 login successful but no authentication token received.")
-            print("Successfully logged in to EG4 portal.")
+        if login_data.get('code') == 0: # Common success code
+            log_message("INFO", "Successfully logged in to EG4 portal.")
         else:
-            raise ValueError(f"EG4 login failed: {login_data.get('msg', 'Unknown error')}. Response: {login_data}")
+            log_message("ERROR", f"EG4 Login failed: {login_data.get('msg', 'Unknown error')} (Code: {login_data.get('code', 'N/A')})")
+            sys.exit(1)
 
-        # Set headers for subsequent authenticated EG4 API calls
-        headers_eg4_auth = {'Content-Type': 'application/json', 'token': eg4_auth_token}
+    except requests.exceptions.RequestException as e:
+        log_message("ERROR", f"Network or HTTP error during EG4 login: {e}")
+        sys.exit(1)
+    except json.JSONDecodeError:
+        log_message("ERROR", f"Failed to decode JSON from EG4 login response. Response content: {login_response.text[:200]}...")
+        sys.exit(1)
 
-        # 3. Determine EG4 Station ID
-        target_station_id = eg4_station_id_int
-        if not target_station_id:
-            print("EG4_STATION_ID not provided, fetching plant list to select the first one...")
-            plant_list_url = f"{EG4_BASE_URL}{EG4_PLANT_LIST_ENDPOINT}"
-            
-            # EG4 plantList API usually requires a POST with a body for pagination
-            plant_list_payload = json.dumps({"page": 1, "pageSize": 10}) 
-            
-            plant_list_response = session.post(plant_list_url, data=plant_list_payload, headers=headers_eg4_auth, timeout=15)
+    # --- 3. Determine EG4 Plant ID (Station ID) ---
+    current_plant_id = eg4_station_id
+    if not current_plant_id:
+        log_message("INFO", "EG4_STATION_ID not provided. Attempting to fetch plant list and auto-select the first one.")
+        try:
+            # Need to update Referer for the plant list request
+            session.headers.update({'Referer': 'https://monitor.eg4electronics.com/WManage/web/plant/overview'})
+            plant_list_response = session.post(EG4_GET_PLANT_LIST_URL, data={'page': 1, 'limit': 10}, timeout=10)
             plant_list_response.raise_for_status()
             plant_list_data = plant_list_response.json()
 
-            if plant_list_data.get('code') == 0 and plant_list_data.get('obj', {}).get('list'):
-                first_plant = plant_list_data['obj']['list'][0]
-                target_station_id = first_plant.get('plantId')
-                if not target_station_id:
-                    raise ValueError("Could not find 'plantId' in the first plant from the list.")
-                print(f"Selected first plant: '{first_plant.get('plantName', 'N/A')}' (ID: {target_station_id})")
+            if plant_list_data.get('code') == 0 and 'data' in plant_list_data and 'list' in plant_list_data['data']:
+                plants = plant_list_data['data']['list']
+                if plants:
+                    current_plant_id = plants[0].get('plantId')
+                    plant_name = plants[0].get('name', 'N/A')
+                    log_message("INFO", f"Auto-selected Plant ID: {current_plant_id} (Name: {plant_name})")
+                else:
+                    log_message("ERROR", "No plants found in the EG4 account.")
+                    sys.exit(1)
             else:
-                raise ValueError(f"Failed to fetch plant list or no plants found. Response: {plant_list_data.get('msg', 'Unknown error')}. Full response: {plant_list_data}")
-        else:
-            print(f"Using provided EG4_STATION_ID: {target_station_id}")
-            
-        if not target_station_id:
-            raise ValueError("No EG4 Station ID could be determined. Exiting.")
+                log_message("ERROR", f"Failed to fetch plant list from EG4: {plant_list_data.get('msg', 'Unknown error')} (Code: {plant_list_data.get('code', 'N/A')})")
+                sys.exit(1)
 
-        # 4. Fetch Latest Inverter Data
-        print(f"Fetching real-time data for EG4 Station ID: {target_station_id}...")
-        inverter_data_url = f"{EG4_BASE_URL}{EG4_PLANT_REALTIME_DATA_ENDPOINT}"
-        inverter_payload = json.dumps({"plantId": target_station_id})
+        except requests.exceptions.RequestException as e:
+            log_message("ERROR", f"Network or HTTP error during fetching EG4 plant list: {e}")
+            sys.exit(1)
+        except json.JSONDecodeError:
+            log_message("ERROR", f"Failed to decode JSON from EG4 plant list response. Response content: {plant_list_response.text[:200]}...")
+            sys.exit(1)
+    else:
+        log_message("INFO", f"Using provided EG4_STATION_ID: {current_plant_id}")
 
-        inverter_response = session.post(inverter_data_url, data=inverter_payload, headers=headers_eg4_auth, timeout=15)
-        inverter_response.raise_for_status()
-        inverter_data = inverter_response.json()
+    if not current_plant_id:
+        log_message("ERROR", "Could not determine EG4 Plant ID. Exiting.")
+        sys.exit(1)
 
-        pv_power = None
-        battery_soc = None
-        load_power = None
+    # --- 4. Fetch Realtime Data from EG4 Portal ---
+    log_message("INFO", f"Fetching realtime data for Plant ID: {current_plant_id}")
+    realtime_data_payload = {'plantId': current_plant_id}
+    try:
+        session.headers.update({'Referer': 'https://monitor.eg4electronics.com/WManage/web/plant/overview'})
+        realtime_response = session.post(EG4_GET_REALTIME_DATA_URL, data=realtime_data_payload, timeout=10)
+        realtime_response.raise_for_status()
+        realtime_data = realtime_response.json()
 
-        if inverter_data.get('code') == 0 and inverter_data.get('obj'):
-            plant_realtime_info = inverter_data['obj']
-            # Common field names for inverter data.
-            # You might need to adjust these based on the actual EG4 API response:
-            # 'pac' for PV AC power
-            # 'soc' for battery State of Charge
-            # 'pLoad' for instantaneous load power
-            pv_power = plant_realtime_info.get('pac')
-            battery_soc = plant_realtime_info.get('soc')
-            load_power = plant_realtime_info.get('pLoad') 
+        if realtime_data.get('code') == 0 and 'data' in realtime_data:
+            eg4_metrics = realtime_data['data']
+            log_message("DEBUG", f"Raw EG4 Realtime Data: {eg4_metrics}")
 
-            # Ensure all values are numeric, convert to float/int if they are not already.
-            # Default to 0.0 if missing or conversion fails.
+            # --- Map EG4 data to Sensecraft format ---
+            # These key names are best guesses based on common portal structures.
+            # Actual names might differ. User may need to inspect `eg4_metrics` output.
+            pv_power = eg4_metrics.get('currentPower', 0) # Often inverter output / PV power
+            battery_soc = eg4_metrics.get('batterySoc', 0) # Battery State of Charge
+            load_power = eg4_metrics.get('loadPower', 0)   # Home/Load consumption power
+
+            # Ensure values are numeric, default to 0 if not found or invalid
             try:
-                pv_power = float(pv_power) if pv_power is not None else 0.0
-                battery_soc = float(battery_soc) if battery_soc is not None else 0.0
-                load_power = float(load_power) if load_power is not None else 0.0
-            except (TypeError, ValueError) as e:
-                print(f"WARNING: Could not convert EG4 data to numeric type: {e}")
-                print(f"Raw EG4 values: PV={pv_power}, SOC={battery_soc}, Load={load_power}")
-                # Fallback to 0.0 if conversion failed but original value exists (e.g. string "N/A")
-                pv_power = 0.0
-                battery_soc = 0.0
-                load_power = 0.0
+                pv_power = float(pv_power)
+                battery_soc = float(battery_soc)
+                load_power = float(load_power)
+            except (ValueError, TypeError) as e:
+                log_message("WARNING", f"Could not convert one or more EG4 metrics to float (PV: {pv_power}, SOC: {battery_soc}, Load: {load_power}). Error: {e}. Defaulting to 0.")
+                pv_power, battery_soc, load_power = 0.0, 0.0, 0.0
 
-            print(f"EG4 Data Retrieved: PV Power={pv_power}W, Battery SOC={battery_soc}%, Load Power={load_power}W")
-        else:
-            raise ValueError(f"Failed to fetch inverter data. Response: {inverter_data.get('msg', 'Unknown error')}. Full response: {inverter_data}")
+            log_message("INFO", f"EG4 Data - PV Power: {pv_power}W, Battery SOC: {battery_soc}%, Load Power: {load_power}W")
 
-        if pv_power is None and battery_soc is None and load_power is None:
-            raise ValueError("No valid inverter data could be extracted from EG4 response.")
-
-        # 5. Push data to Sensecraft API
-        print("Pushing data to Sensecraft API...")
-        sensecraft_headers = {
-            'api-key': SENSECRAFT_KEY,
-            'Content-Type': 'application/json'
-        }
-        sensecraft_payload = {
-            "device_id": SENSECRAFT_DEVICE_ID,
-            "data": {
-                "pv_power": pv_power,
-                "battery_soc": battery_soc,
-                "load_power": load_power
+            # --- 5. Format and Push to Sensecraft API ---
+            sensecraft_payload = {
+                "device_id": SENSECRAFT_DEVICE_ID,
+                "data": {
+                    "pv_power": pv_power,
+                    "battery_soc": battery_soc,
+                    "load_power": load_power
+                }
             }
-        }
 
-        sensecraft_response = requests.post(
-            SENSECRAFT_PUSH_URL,
-            headers=sensecraft_headers,
-            json=sensecraft_payload,
-            timeout=15
-        )
-        sensecraft_response.raise_for_status() # Raise HTTPError for bad responses
+            sensecraft_headers = {
+                "api-key": sensecraft_key,
+                "Content-Type": "application/json"
+            }
 
-        print(f"Data successfully pushed to Sensecraft API. Response: {sensecraft_response.text}")
-        print("--- EG4 Data Bridge Script Finished Successfully ---")
-        sys.exit(0)
+            log_message("INFO", "Pushing data to Sensecraft API...")
+            sensecraft_response = requests.post(
+                SENSECRAFT_PUSH_DATA_URL,
+                headers=sensecraft_headers,
+                json=sensecraft_payload,
+                timeout=10
+            )
+            sensecraft_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
 
-    except requests.exceptions.HTTPError as e:
-        print(f"ERROR: An HTTP error occurred: {e}")
-        if e.response is not None:
-            print(f"Response status code: {e.response.status_code}")
-            try:
-                print(f"Response body: {e.response.json()}")
-            except json.JSONDecodeError:
-                print(f"Response body (raw): {e.response.text}")
-        sys.exit(1)
-    except requests.exceptions.ConnectionError as e:
-        print(f"ERROR: A network connection error occurred: {e}")
-        sys.exit(1)
-    except requests.exceptions.Timeout as e:
-        print(f"ERROR: The request timed out after 15 seconds: {e}")
-        sys.exit(1)
+            sensecraft_result = sensecraft_response.json()
+            if sensecraft_result.get('status') == 0: # Assuming 0 is success for Sensecraft
+                log_message("INFO", "Successfully pushed data to Sensecraft API.")
+            else:
+                log_message("ERROR", f"Failed to push data to Sensecraft API: {sensecraft_result.get('msg', 'Unknown error')} (Status: {sensecraft_result.get('status', 'N/A')})")
+                sys.exit(1)
+
+        else:
+            log_message("ERROR", f"Failed to fetch realtime data from EG4: {realtime_data.get('msg', 'Unknown error')} (Code: {realtime_data.get('code', 'N/A')})")
+            sys.exit(1)
+
     except requests.exceptions.RequestException as e:
-        print(f"ERROR: An unexpected request error occurred: {e}")
+        log_message("ERROR", f"Network or HTTP error during EG4 data fetch or Sensecraft push: {e}")
         sys.exit(1)
-    except ValueError as e:
-        print(f"ERROR: Data processing or API logic error: {e}")
+    except json.JSONDecodeError:
+        log_message("ERROR", f"Failed to decode JSON from EG4 realtime data or Sensecraft response. Response content: {realtime_response.text[:200]}...")
         sys.exit(1)
     except Exception as e:
-        print(f"ERROR: An unhandled exception occurred: {e}", exc_info=True) # exc_info for detailed traceback
+        log_message("ERROR", f"An unexpected error occurred: {e}")
         sys.exit(1)
+
+    log_message("INFO", "Script execution completed successfully.")
 
 if __name__ == "__main__":
     main()
