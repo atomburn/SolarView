@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/solar.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/solar",
+      "dest": "/api/solar.py"
+    },
+    {
+      "src": "/data.json",
+      "dest": "/api/solar.py"
+    }
+  ]
+}
