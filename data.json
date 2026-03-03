@@ -1,6 +1,6 @@
 {
-  "battery_soc": 99,
-  "pv_power": 2345,
+  "battery_soc": 100,
+  "pv_power": 962,
   "load_power": 0,
-  "last_updated": "2026-03-03T19:48:01.529571+00:00"
+  "last_updated": "2026-03-03T20:17:06.969914+00:00"
 }
